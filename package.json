@@ -1,0 +1,9 @@
+{
+  "name": "yupoo-finder",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "deploy": "wrangler deploy"
+  }
+}
