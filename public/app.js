@@ -337,6 +337,7 @@
     onStatus("Chargement du moteur photo (≈ 25 Mo, seulement la 1re fois)…");
     const T = await import(VIS.lib);
     T.env.allowLocalModels = false;
+    T.env.remoteHost = location.origin + "/models/"; // modèle relayé par notre serveur
     ps.proc = await T.AutoProcessor.from_pretrained(VIS.model);
     ps.model = await T.AutoModel.from_pretrained(VIS.model, { dtype: "q8" });
     ps.T = T;
