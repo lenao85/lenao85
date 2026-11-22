@@ -9,4 +9,5 @@ window.DEFAULT_STORES = [
   "lufilostudio", "topmade", "tigerrep", "alaskareps", "huskyreps",
   "copy-brand", "firerep", "shark-breeder", "yishan-ess", "800m",
   "scorpio-reps", "ezfashion", "baymaxsocks",
+  "goat-official", "andyshop188", "amiparis", "deateath",
 ];
