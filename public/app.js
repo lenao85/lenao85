@@ -367,7 +367,7 @@
   }
 
   // Renvoie les meilleurs albums : [{ s, a, score }]
-  function nearest(q, { exclude = null, limit = 60, perStore = 12 } = {}) {
+  function nearest(q, { exclude = null, excludeStore = null, limit = 60, perStore = 12 } = {}) {
     const { meta, vecs } = ps.index;
     const D = VIS.dim, N = meta.items.length;
     const scores = new Float32Array(N);
@@ -383,7 +383,7 @@
       if (out.length >= limit) break;
       const it = meta.items[i];
       const s = meta.stores[it[0]];
-      if (`${s}:${it[1]}` === exclude) continue;
+      if (`${s}:${it[1]}` === exclude || s === excludeStore) continue;
       if ((count[s] = (count[s] || 0) + 1) > perStore) continue;
       out.push({ s, score: scores[i], a: { id: it[1], title: it[2], cover: "https://photo.yupoo.com/" + it[3], count: it[4] } });
     }
@@ -412,7 +412,7 @@
         st("Analyse de la photo…");
         q = await embedBlob(await (await fetch(img(thumb))).blob());
       }
-      renderMatches(el, nearest(q, { exclude: `${s}:${id}`, limit: 30, perStore: 4 }));
+      renderMatches(el, nearest(q, { excludeStore: s, limit: 30, perStore: 4 }));
     } catch (e) {
       el.innerHTML = `<p class="err">${esc(e.message)}</p>`;
     }
