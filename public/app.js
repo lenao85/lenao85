@@ -43,11 +43,20 @@
     catch { prompt("Copie ce lien :", text); }
   }
 
+  const sleep = (ms, signal) => new Promise((ok, ko) => {
+    const t = setTimeout(ok, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(t); ko(new DOMException("abort", "AbortError")); });
+  });
+
+  // Yupoo freine (erreur 429) si on va trop vite : on attend un peu et on réessaie
   async function api(path, params, signal) {
-    const res = await fetch(`/api/${path}?${new URLSearchParams(params)}`, { signal });
-    const data = await res.json().catch(() => ({ error: "Réponse invalide" }));
-    if (!res.ok || data.error) throw new Error(data.error || `Erreur ${res.status}`);
-    return data;
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(`/api/${path}?${new URLSearchParams(params)}`, { signal });
+      if (res.status === 429 && attempt < 4) { await sleep(1500 * 2 ** attempt + Math.random() * 1000, signal); continue; }
+      const data = await res.json().catch(() => ({ error: "Réponse invalide" }));
+      if (!res.ok || data.error) throw new Error(data.error || `Erreur ${res.status}`);
+      return data;
+    }
   }
 
   function header(title, { back = false, right = "" } = {}) {
@@ -222,7 +231,7 @@
     const signal = newCtrl();
     lastSearch = { q, results: [], errors: [], done: 0, filter: null };
     renderResults();
-    await pool(stores, 6, async (s) => {
+    await pool(stores, 4, async (s) => {
       if (signal.aborted) return;
       try {
         const d = await api("search", { s, q }, signal);
@@ -361,7 +370,7 @@
     $("#check").onclick = async (e) => {
       e.target.disabled = true; e.target.textContent = "Test en cours…";
       const signal = newCtrl();
-      await pool(stores, 6, async (s) => {
+      await pool(stores, 4, async (s) => {
         try { await api("albums", { s }, signal); setStatus(s, "ok"); }
         catch (err) { if (err.name !== "AbortError") setStatus(s, "bad"); }
       });

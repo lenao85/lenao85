@@ -30,7 +30,7 @@ async function getHtml(url, store) {
     redirect: "follow",
     cf: { cacheTtl: 300, cacheEverything: true },
   });
-  if (!res.ok) throw new HttpError(res.status === 404 ? 404 : 502, `Yupoo a répondu ${res.status}`);
+  if (!res.ok) throw new HttpError([404, 429].includes(res.status) ? res.status : 502, `Yupoo a répondu ${res.status}`);
   const html = await res.text();
   // Vendeur inexistant : Yupoo renvoie une page générique sans galerie
   if (!/x\.yupoo\.com|photo\.yupoo\.com/.test(html)) throw new HttpError(502, "Page Yupoo inattendue");
