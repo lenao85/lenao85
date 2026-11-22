@@ -26,6 +26,12 @@ const env = {
 };
 
 http.createServer(async (req, res) => {
+  // index de test local (généré par scripts/build-index.mjs dans out/)
+  if (req.url.startsWith("/index/")) {
+    try { res.end(await fs.readFile(path.join("out", path.basename(req.url)))); }
+    catch { res.writeHead(404); res.end("{}"); }
+    return;
+  }
   const r = await worker.fetch(new Request(`http://localhost:8787${req.url}`), env, { waitUntil() {} });
   res.writeHead(r.status, Object.fromEntries(r.headers));
   res.end(Buffer.from(await r.arrayBuffer()));

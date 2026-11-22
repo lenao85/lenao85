@@ -101,12 +101,30 @@ async function image(sp, ctx) {
   return res;
 }
 
+// Index de la recherche par photo : fichiers publiés chaque nuit par GitHub Actions (release "index")
+async function indexFile(name, env) {
+  if (!["meta.json", "vecs.bin"].includes(name)) return new Response("not found", { status: 404 });
+  const repo = env.INDEX_REPO || "lenao85/lenao85";
+  const up = await fetch(`https://github.com/${repo}/releases/download/index/${name}`, {
+    cf: { cacheTtl: 1800, cacheEverything: true },
+  });
+  if (!up.ok) return json({ error: "Index pas encore prêt" }, 404);
+  return new Response(up.body, {
+    headers: {
+      "content-type": name.endsWith(".json") ? "application/json; charset=utf-8" : "application/octet-stream",
+      "cache-control": "public, max-age=1800",
+      "access-control-allow-origin": "*",
+    },
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
       if (url.pathname.startsWith("/api/")) return await api(url.pathname, url.searchParams);
       if (url.pathname === "/img") return await image(url.searchParams, ctx);
+      if (url.pathname.startsWith("/index/")) return await indexFile(url.pathname.slice(7), env);
     } catch (e) {
       return json({ error: e.message || "Erreur" }, e.status || 500);
     }

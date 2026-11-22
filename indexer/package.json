@@ -1,0 +1,10 @@
+{
+  "name": "yupoo-finder-indexer",
+  "private": true,
+  "type": "module",
+  "description": "Construit l'index de la recherche par photo (lancé chaque nuit par GitHub Actions)",
+  "scripts": { "build": "node build-index.mjs" },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.2"
+  }
+}

@@ -66,9 +66,10 @@
     document.title = title + " · Yupoo Finder";
   }
 
-  function itemCard(a, s, showStore) {
+  function itemCard(a, s, showStore, score) {
     return `<a class="item" href="#/s/${esc(s)}/a/${esc(a.id)}">
       <div class="im">${a.cover ? `<img loading="lazy" src="${img(a.cover)}" alt="">` : ""}
+        ${score != null ? `<span class="score">${Math.round(score * 100)}%</span>` : ""}
         ${a.count ? `<span class="cnt">${a.count} 📷</span>` : ""}</div>
       <div class="tt">${esc(a.title || "Sans titre")}</div>
       ${showStore ? `<div class="st">${esc(s)}</div>` : ""}
@@ -170,7 +171,9 @@
           </div>
         </div>
         ${a.links.length ? `<div class="panel links"><h2>Liens d'achat</h2>${a.links.map((l) => `<a href="${esc(l)}" target="_blank" rel="noopener">${esc(l)}</a>`).join("")}</div>` : ""}
-        <div class="photos">${a.photos.map((p, i) => `<img loading="lazy" src="${img(p.thumb)}" data-i="${i}" alt="">`).join("")}</div>`;
+        <div class="photos">${a.photos.map((p, i) => `<img loading="lazy" src="${img(p.thumb)}" data-i="${i}" alt="">`).join("")}</div>
+        <div class="panel"><h2>Le même article chez d'autres vendeurs</h2><div id="similar"><button class="btn ghost block" id="simBtn">Rechercher par photo</button></div></div>`;
+      $("#simBtn").onclick = () => similarForAlbum(s, id, a.photos[0]?.thumb, $("#similar"));
       $("#cp").onclick = () => copy(a.url);
       $("#same").onclick = () => { location.hash = `#/search?q=${encodeURIComponent(keywords(a.title))}`; };
       view.querySelector(".photos").onclick = (e) => {
@@ -270,6 +273,97 @@
     out.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { lastSearch.filter = c.dataset.f || null; renderResults(); }));
   }
 
+  // ---------- Recherche visuelle (dans l'iPhone) ----------
+  // Le modèle DINOv2 calcule une « empreinte » de la photo ; on la compare aux empreintes
+  // des couvertures d'albums de tous les vendeurs (index construit chaque nuit par GitHub).
+  const VIS = { lib: "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2", model: "Xenova/dinov2-small", dim: 384 };
+  const ps = { T: null, proc: null, model: null, index: null, loading: null };
+
+  async function loadModel(onStatus) {
+    if (ps.model) return;
+    onStatus("Chargement du moteur photo (≈ 25 Mo, seulement la 1re fois)…");
+    const T = await import(VIS.lib);
+    T.env.allowLocalModels = false;
+    ps.proc = await T.AutoProcessor.from_pretrained(VIS.model);
+    ps.model = await T.AutoModel.from_pretrained(VIS.model, { dtype: "q8" });
+    ps.T = T;
+  }
+
+  async function loadIndex(onStatus) {
+    if (ps.index) return ps.index;
+    onStatus("Chargement de l'index des vendeurs…");
+    const [mr, vr] = await Promise.all([fetch("/index/meta.json"), fetch("/index/vecs.bin")]);
+    if (!mr.ok || !vr.ok) throw new Error("L'index n'est pas encore prêt (il se construit chaque nuit). Réessaie plus tard.");
+    const meta = await mr.json();
+    const vecs = new Int8Array(await vr.arrayBuffer());
+    if (meta.model !== VIS.model || meta.dim !== VIS.dim) throw new Error("Index d'une ancienne version, il sera refait cette nuit.");
+    const byKey = new Map(meta.items.map((it, i) => [`${meta.stores[it[0]]}:${it[1]}`, i]));
+    ps.index = { meta, vecs, byKey };
+    return ps.index;
+  }
+
+  async function embedBlob(blob) {
+    const im = await ps.T.RawImage.fromBlob(blob);
+    const out = await ps.model(await ps.proc(im));
+    const v = Float32Array.from(out.last_hidden_state.data.subarray(0, VIS.dim));
+    let n = 0;
+    for (const x of v) n += x * x;
+    n = Math.sqrt(n) || 1;
+    return v.map((x) => x / n);
+  }
+
+  // Renvoie les meilleurs albums : [{ s, a, score }]
+  function nearest(q, { exclude = null, limit = 60, perStore = 12 } = {}) {
+    const { meta, vecs } = ps.index;
+    const D = VIS.dim, N = meta.items.length;
+    const scores = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      let d = 0;
+      const o = i * D;
+      for (let j = 0; j < D; j++) d += q[j] * vecs[o + j];
+      scores[i] = d / 127;
+    }
+    const order = Array.from(scores.keys()).sort((a, b) => scores[b] - scores[a]);
+    const out = [], count = {};
+    for (const i of order) {
+      if (out.length >= limit) break;
+      const it = meta.items[i];
+      const s = meta.stores[it[0]];
+      if (`${s}:${it[1]}` === exclude) continue;
+      if ((count[s] = (count[s] || 0) + 1) > perStore) continue;
+      out.push({ s, score: scores[i], a: { id: it[1], title: it[2], cover: "https://photo.yupoo.com/" + it[3], count: it[4] } });
+    }
+    return out;
+  }
+
+  function renderMatches(el, res, note = "") {
+    const stores = new Set(res.map((r) => r.s)).size;
+    el.innerHTML = `<p class="muted">${note}${res.length} albums ressemblants chez ${stores} vendeurs (du plus au moins ressemblant)</p>
+      <div class="grid">${res.map((r) => itemCard(r.a, r.s, true, r.score)).join("")}</div>`;
+  }
+
+  const statusHtml = (msg) => `<div class="spinner"></div><p class="center muted" style="padding-top:0">${esc(msg)}</p>`;
+
+  async function similarForAlbum(s, id, thumb, el) {
+    const st = (m) => (el.innerHTML = statusHtml(m));
+    try {
+      await loadIndex(st);
+      const i = ps.index.byKey.get(`${s}:${id}`);
+      let q;
+      if (i != null) {
+        q = Float32Array.from(ps.index.vecs.subarray(i * VIS.dim, (i + 1) * VIS.dim), (x) => x / 127);
+      } else {
+        if (!thumb) throw new Error("Pas de photo dans cet album");
+        await loadModel(st);
+        st("Analyse de la photo…");
+        q = await embedBlob(await (await fetch(img(thumb))).blob());
+      }
+      renderMatches(el, nearest(q, { exclude: `${s}:${id}`, limit: 30, perStore: 4 }));
+    } catch (e) {
+      el.innerHTML = `<p class="err">${esc(e.message)}</p>`;
+    }
+  }
+
   // ---------- Écran : recherche par photo ----------
   function viewPhoto() {
     header("Recherche par photo");
@@ -279,24 +373,41 @@
           <input type="file" name="encoded_image" id="file" accept="image/*" hidden>
           <div id="prev"><div style="font-size:40px">📷</div><b>Prendre ou choisir une photo</b><div class="muted">capture d'écran, photo d'un vêtement…</div></div>
         </label>
+        <div id="results"></div>
         <div id="actions" hidden>
-          <button class="btn block" type="submit">Chercher avec Google Lens</button>
-          <button class="btn ghost block" type="button" id="bing">Chercher avec Bing</button>
+          <div class="panel" style="margin-top:14px">
+            <h2>Pas trouvé ? Chercher sur tout Internet</h2>
+            <button class="btn ghost block" type="submit">Google Lens</button>
+            <button class="btn ghost block" type="button" id="bing">Bing</button>
+            <div class="muted" style="margin-top:8px">Dans Lens, ajoute le mot <b>yupoo</b> à la recherche pour ne garder que les albums Yupoo.</div>
+          </div>
         </div>
       </form>
-      <div class="panel" style="margin-top:14px">
+      <div class="panel" id="howto" style="margin-top:14px">
         <h2>Comment ça marche</h2>
-        <div class="muted">Google Lens s'ouvre avec ta photo et te montre les pages qui ont la même image.
-        Dans Lens, ajoute le mot <b>yupoo</b> dans la barre (« Ajouter à la recherche ») pour ne garder que les albums Yupoo.<br><br>
-        Depuis un album de l'appli, le bouton « Chercher ailleurs (photo) » fait la même chose avec la photo de l'album.</div>
+        <div class="muted">L'appli compare ta photo aux photos de couverture de tous les albums de tes vendeurs et te montre les plus ressemblants.
+        L'index est mis à jour chaque nuit.<br><br>Astuce : recadre la photo sur l'article (sans le décor) pour de meilleurs résultats.</div>
       </div>`;
     const file = $("#file");
-    file.onchange = () => {
+    file.onchange = async () => {
       const f = file.files[0];
       if (!f) return;
       const url = URL.createObjectURL(f);
       $("#prev").innerHTML = `<img src="${url}" alt=""><div class="muted" style="margin-top:8px">Touche pour changer</div>`;
       $("#actions").hidden = false;
+      $("#howto").hidden = true;
+      const el = $("#results");
+      const st = (m) => (el.innerHTML = statusHtml(m));
+      try {
+        await Promise.all([loadModel(st), loadIndex(() => {})]);
+        st("Analyse de la photo…");
+        const q = await embedBlob(f);
+        st("Comparaison avec tous les vendeurs…");
+        await new Promise((r) => setTimeout(r, 30));
+        renderMatches(el, nearest(q), "");
+      } catch (e) {
+        el.innerHTML = `<p class="err" style="margin-top:12px">${esc(e.message)}</p>`;
+      }
     };
     $("#bing").onclick = async () => {
       const f = file.files[0];
