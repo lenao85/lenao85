@@ -29,8 +29,13 @@
   }
 
   // ---------- Utilitaires UI ----------
-  const COLORS = ["#7c5cff", "#ff7a59", "#2bb3a3", "#e2508f", "#4f8cff", "#c08a1e", "#53b257", "#a35bd6"];
-  const color = (s) => COLORS[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
+  const ICON = {
+    search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>`,
+    cam: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3.5 8.5a2 2 0 0 1 2-2h2.2l1.6-2.2h5.4l1.6 2.2h2.2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.8"/></svg>`,
+    chevron: `<svg width="8" height="14" viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m1 1 6 6-6 6"/></svg>`,
+  };
+  const field = (attrs) => `<label class="field">${ICON.search}<input ${attrs}></label>`;
+  const bigTitle = (t, sub = "") => `<div class="bigtitle"><h2>${esc(t)}</h2>${sub ? `<p>${sub}</p>` : ""}</div>`;
 
   function toast(msg) {
     const t = $("#toast");
@@ -59,7 +64,8 @@
     }
   }
 
-  function header(title, { back = false, right = "" } = {}) {
+  function header(title, { back = false, right = "", large = false } = {}) {
+    document.body.classList.toggle("large", large);
     $("#title").textContent = title;
     $("#back").hidden = !back;
     $("#topRight").innerHTML = right;
@@ -87,36 +93,79 @@
   const newCtrl = () => { if (ctrl) ctrl.abort(); ctrl = new AbortController(); return ctrl.signal; };
 
   // ---------- Écran : liste des vendeurs ----------
+  // Aperçu (4 dernières couvertures) gardé 12 h dans le téléphone
+  const PV_TTL = 12 * 3600 * 1000;
+  const getPreview = (s) => { const p = store.get("pv:" + s, null); return p && Date.now() - p.t < PV_TTL ? p : null; };
+
+  function storeCard(s) {
+    const pv = getPreview(s);
+    const covers = pv?.covers || [];
+    const mosaic = covers.length
+      ? `<div class="mosaic">${[0, 1, 2].map((i) => `<i style="background-image:url('${covers[i] ? img(covers[i]) : ""}')"></i>`).join("")}</div>`
+      : `<div class="mosaic empty"></div>`;
+    const sub = pv ? (pv.pages > 1 ? `${pv.pages * 120 > 999 ? Math.round(pv.pages * 120 / 100) / 10 + " k" : pv.pages * 120}+ albums` : "Catalogue") : status[s] === "bad" ? "Introuvable" : "Yupoo";
+    return `<a class="store ${status[s] === "bad" ? "bad" : ""}" href="#/s/${esc(s)}" data-name="${esc(s)}">
+      ${mosaic}${favs.has(s) ? `<span class="star">★</span>` : ""}
+      <div class="info"><i class="logo"></i><div class="nm">${esc(s)}</div><div class="sub">${sub}</div></div>
+    </a>`;
+  }
+
   function viewStores() {
-    header("Vendeurs", { right: `<button id="editBtn">Modifier</button>` });
+    header("Vendeurs", { large: true, right: `<button id="editBtn">Modifier</button>` });
     $("#editBtn").onclick = () => (location.hash = "#/edit");
-    const sorted = [...stores].sort((a, b) => (favs.has(b) - favs.has(a)) || a.localeCompare(b));
+    const sorted = [...stores].sort((a, b) => a.localeCompare(b));
+    const fl = sorted.filter((s) => favs.has(s));
     view.innerHTML = `
-      <div class="searchbar"><input id="filter" type="search" placeholder="Filtrer ${stores.length} vendeurs…" autocomplete="off"></div>
-      <div class="stores" id="grid">${sorted.map((s) => `
-        <a class="store" href="#/s/${esc(s)}" data-name="${esc(s)}">
-          ${favs.has(s) ? `<span class="star">★</span>` : ""}
-          <div class="av" style="background:${color(s)}">${esc(s[0].toUpperCase())}</div>
-          <div class="nm">${esc(s)}</div>
-        </a>`).join("")}</div>
-      ${stores.length ? "" : `<p class="center muted">Aucun vendeur. Touche « Modifier » pour en ajouter.</p>`}`;
+      ${bigTitle("Vendeurs", `${stores.length} catalogues Yupoo`)}
+      <a class="hero" href="#/search">
+        <span class="hi">${ICON.search}</span>
+        <span><b>Rechercher partout</b><span>Un article chez tous tes vendeurs</span></span>
+        <span class="arrow">${ICON.chevron}</span>
+      </a>
+      ${fl.length ? `<div class="section-title">Favoris</div>
+        <div class="favs">${fl.map((s) => {
+          const c = getPreview(s)?.covers?.[0];
+          return `<a class="fav" href="#/s/${esc(s)}"><span class="ring"><i ${c ? `style="background-image:url('${img(c)}')"` : ""}></i></span><span>${esc(s)}</span></a>`;
+        }).join("")}</div>` : ""}
+      <div class="section-title">Tous les vendeurs <small id="cnt"></small></div>
+      <div class="searchbar">${field(`id="filter" type="search" placeholder="Filtrer" autocomplete="off"`)}</div>
+      <div class="stores" id="grid">${sorted.map(storeCard).join("")}</div>
+      ${stores.length ? "" : `<div class="empty-state"><div class="big">🛍️</div><b>Aucun vendeur</b>Touche « Modifier » pour en ajouter.</div>`}`;
     $("#filter").oninput = (e) => {
       const q = e.target.value.toLowerCase();
       view.querySelectorAll(".store").forEach((el) => (el.hidden = !el.dataset.name.includes(q)));
     };
+    // charge les aperçus manquants en arrière-plan
+    const missing = stores.filter((s) => !getPreview(s) && status[s] !== "bad");
+    if (missing.length) {
+      const signal = newCtrl();
+      pool(missing, 3, async (s) => {
+        try {
+          const d = await api("preview", { s }, signal);
+          store.set("pv:" + s, { t: Date.now(), covers: d.covers, pages: d.pages });
+          setStatus(s, "ok");
+        } catch (e) {
+          if (e.name === "AbortError") return;
+          if (/404/.test(e.message)) setStatus(s, "bad");
+        }
+        const el = view.querySelector(`.store[data-name="${CSS.escape(s)}"]`);
+        if (el && location.hash.replace(/^#\/?/, "") === "") { const n = document.createElement("div"); n.innerHTML = storeCard(s); n.firstElementChild.hidden = el.hidden; el.replaceWith(n.firstElementChild); }
+      });
+    }
   }
 
   // ---------- Écran : albums d'un vendeur ----------
   async function viewStore(s) {
     const fav = favs.has(s);
-    header(s, { back: true, right: `<button id="favBtn">${fav ? "★" : "☆"}</button>` });
+    header(s, { back: true, large: true, right: `<button id="favBtn" class="ic">${fav ? "★" : "☆"}</button>` });
     $("#favBtn").onclick = () => {
       favs.has(s) ? favs.delete(s) : favs.add(s); saveFavs();
       $("#favBtn").textContent = favs.has(s) ? "★" : "☆";
       toast(favs.has(s) ? "Ajouté aux favoris" : "Retiré des favoris");
     };
     view.innerHTML = `
-      <form class="searchbar" id="sf"><input id="sq" type="search" placeholder="Chercher chez ${esc(s)}…" autocomplete="off" enterkeyhint="search"></form>
+      ${bigTitle(s, `<a href="${yupoo(s)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(s)}.x.yupoo.com ↗</a>`)}
+      <form class="searchbar" id="sf">${field(`id="sq" type="search" placeholder="Chercher chez ${esc(s)}" autocomplete="off" enterkeyhint="search"`)}</form>
       <div id="list" class="grid"></div><div id="more"></div>
       <a class="btn ghost block" href="${yupoo(s)}" target="_blank" rel="noopener">Ouvrir sur Yupoo ↗</a>`;
     const signal = newCtrl();
@@ -158,21 +207,24 @@
       const firstPhoto = a.photos[0]?.full;
       const lensUrl = firstPhoto ? `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(location.origin + img(firstPhoto))}` : null;
       view.innerHTML = `
+        <div class="photos fade-in">${a.photos.map((p, i) => `<img loading="lazy" src="${img(p.thumb)}" data-i="${i}" alt="">`).join("")}</div>
         <div class="panel">
-          <h2>${esc(a.title || "Album")}</h2>
-          <div class="muted">${a.photos.length} photos · ${esc(s)}</div>
-          <div class="row" style="margin-top:10px">
-            <a class="btn small" href="${esc(a.url)}" target="_blank" rel="noopener">Ouvrir sur Yupoo ↗</a>
-            <button class="btn small ghost" id="cp">Copier le lien</button>
-          </div>
-          <div class="row" style="margin-top:8px">
-            <button class="btn small ghost" id="same">Chercher ailleurs (texte)</button>
-            ${lensUrl ? `<a class="btn small ghost" href="${esc(lensUrl)}" target="_blank" rel="noopener">Chercher ailleurs (photo)</a>` : ""}
+          <h3>${esc(a.title || "Album")}</h3>
+          <div class="muted">${a.photos.length} photos · <a href="#/s/${esc(s)}" style="color:var(--accent)">${esc(s)}</a></div>
+          <div class="row" style="margin-top:14px">
+            <a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">Ouvrir sur Yupoo</a>
+            <button class="btn ghost" id="cp">Copier le lien</button>
           </div>
         </div>
         ${a.links.length ? `<div class="panel links"><h2>Liens d'achat</h2>${a.links.map((l) => `<a href="${esc(l)}" target="_blank" rel="noopener">${esc(l)}</a>`).join("")}</div>` : ""}
-        <div class="photos">${a.photos.map((p, i) => `<img loading="lazy" src="${img(p.thumb)}" data-i="${i}" alt="">`).join("")}</div>
-        <div class="panel"><h2>Le même article chez d'autres vendeurs</h2><div id="similar"><button class="btn ghost block" id="simBtn">Rechercher par photo</button></div></div>`;
+        <div class="panel"><h2>Le même article ailleurs</h2>
+          <div class="muted">Chez tes autres vendeurs</div>
+          <div id="similar"><button class="btn grad block" id="simBtn">${ICON.cam} Rechercher par photo</button></div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn small ghost" id="same">Par le titre</button>
+            ${lensUrl ? `<a class="btn small ghost" href="${esc(lensUrl)}" target="_blank" rel="noopener">Google Lens</a>` : ""}
+          </div>
+        </div>`;
       $("#simBtn").onclick = () => similarForAlbum(s, id, a.photos[0]?.thumb, $("#similar"));
       $("#cp").onclick = () => copy(a.url);
       $("#same").onclick = () => { location.hash = `#/search?q=${encodeURIComponent(keywords(a.title))}`; };
@@ -210,11 +262,11 @@
   let lastSearch = { q: "", results: [], errors: [], done: 0, filter: null };
 
   function viewSearch(q0) {
-    header("Recherche");
+    header("Recherche", { large: true });
     view.innerHTML = `
+      ${bigTitle("Recherche", `Chez tes ${stores.length} vendeurs à la fois`)}
       <form class="searchbar" id="f">
-        <input id="q" type="search" placeholder="ex : jordan 4, stussy hoodie…" autocomplete="off" enterkeyhint="search" value="${esc(q0 || lastSearch.q)}">
-        <button class="btn">OK</button>
+        ${field(`id="q" type="search" placeholder="jordan 4, stussy hoodie…" autocomplete="off" enterkeyhint="search" value="${esc(q0 || lastSearch.q)}"`)}
       </form>
       <div id="out"></div>`;
     $("#f").onsubmit = (e) => {
@@ -227,7 +279,8 @@
     };
     if (q0 && q0 !== lastSearch.q) runSearch(q0);
     else if (lastSearch.q) renderResults();
-    else $("#out").innerHTML = `<p class="center muted">Tape un article : la recherche est lancée chez tes ${stores.length} vendeurs en même temps.<br><br>Astuce : les titres Yupoo sont souvent en anglais (« hoodie », « jacket », « sneakers »…).</p>`;
+    else $("#out").innerHTML = `<div class="empty-state"><div class="big">🔎</div><b>Trouve un article partout</b>Les titres Yupoo sont souvent en anglais : « hoodie », « jacket », « sneakers »…</div>
+      <div class="chips" style="justify-content:center;flex-wrap:wrap">${["jordan 4", "hoodie", "jacket", "cap", "bag", "jersey"].map((w) => `<a class="chip" href="#/search?q=${encodeURIComponent(w)}">${w}</a>`).join("")}</div>`;
   }
 
   async function runSearch(q) {
@@ -261,7 +314,7 @@
     for (let i = 0; shown.some((r) => i < r.albums.length); i++) shown.forEach((r) => r.albums[i] && mixed.push([r.albums[i], r.s]));
     out.innerHTML = `
       ${finished ? "" : `<div class="progress"><i style="width:${(done / stores.length) * 100}%"></i></div>`}
-      <p class="muted">${finished ? "" : `Recherche… ${done}/${stores.length} vendeurs · `}<b>${total}</b> albums pour « ${esc(q)} » chez ${results.length} vendeurs
+      <p class="muted" style="margin:0 4px 10px">${finished ? "" : `Recherche… ${done}/${stores.length} vendeurs · `}<b>${total}</b> albums chez ${results.length} vendeurs
         ${finished && errors.length ? `<br><span class="err">${errors.length} vendeur(s) n'ont pas répondu</span>` : ""}</p>
       ${results.length > 1 ? `<div class="chips">
         <button class="chip ${filter ? "" : "on"}" data-f="">Tous</button>
@@ -269,7 +322,7 @@
       </div>` : ""}
       <div class="grid">${mixed.map(([a, s]) => itemCard(a, s, true)).join("")}</div>
       ${filter && results.find((r) => r.s === filter)?.pages > 1 ? `<a class="btn ghost block" href="#/s/${esc(filter)}">Plus de résultats chez ${esc(filter)}</a>` : ""}
-      ${finished && !total ? `<p class="center muted">Rien trouvé. Essaie un autre mot (en anglais souvent), ou la recherche par photo.</p>` : ""}`;
+      ${finished && !total ? `<div class="empty-state"><div class="big">🤷</div><b>Rien trouvé</b>Essaie un autre mot (souvent en anglais) ou la recherche par photo.</div>` : ""}`;
     out.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { lastSearch.filter = c.dataset.f || null; renderResults(); }));
   }
 
@@ -366,12 +419,13 @@
 
   // ---------- Écran : recherche par photo ----------
   function viewPhoto() {
-    header("Recherche par photo");
+    header("Photo", { large: true });
     view.innerHTML = `
+      ${bigTitle("Photo", "Retrouve un article grâce à une image")}
       <form id="lensForm" method="post" enctype="multipart/form-data" action="https://lens.google.com/v3/upload?hl=fr" target="_blank">
         <label class="drop" id="drop">
           <input type="file" name="encoded_image" id="file" accept="image/*" hidden>
-          <div id="prev"><div style="font-size:40px">📷</div><b>Prendre ou choisir une photo</b><div class="muted">capture d'écran, photo d'un vêtement…</div></div>
+          <div id="prev"><div class="cam">${ICON.cam}</div><b>Prendre ou choisir une photo</b><div class="muted">Capture d'écran, photo d'un vêtement, d'une paire…</div></div>
         </label>
         <div id="results"></div>
         <div id="actions" hidden>
@@ -383,17 +437,17 @@
           </div>
         </div>
       </form>
-      <div class="panel" id="howto" style="margin-top:14px">
+      <div class="panel" id="howto" style="margin-top:16px">
         <h2>Comment ça marche</h2>
-        <div class="muted">L'appli compare ta photo aux photos de couverture de tous les albums de tes vendeurs et te montre les plus ressemblants.
-        L'index est mis à jour chaque nuit.<br><br>Astuce : recadre la photo sur l'article (sans le décor) pour de meilleurs résultats.</div>
+        <div class="muted" style="line-height:1.45">L'appli compare ta photo aux albums de tous tes vendeurs et te montre les plus ressemblants, avec un pourcentage de ressemblance. L'index est mis à jour chaque nuit.<br><br>💡 Recadre la photo sur l'article (sans le décor) pour de meilleurs résultats.</div>
       </div>`;
     const file = $("#file");
     file.onchange = async () => {
       const f = file.files[0];
       if (!f) return;
       const url = URL.createObjectURL(f);
-      $("#prev").innerHTML = `<img src="${url}" alt=""><div class="muted" style="margin-top:8px">Touche pour changer</div>`;
+      $("#prev").innerHTML = `<img src="${url}" alt=""><div class="muted" style="margin-top:8px">Touche pour changer de photo</div>`;
+      $("#drop").classList.add("has");
       $("#actions").hidden = false;
       $("#howto").hidden = true;
       const el = $("#results");
@@ -439,21 +493,21 @@
 
   // ---------- Écran : modifier la liste ----------
   function viewEdit() {
-    header("Modifier les vendeurs", { back: true });
+    header("Modifier", { back: true });
     const bad = stores.filter((s) => status[s] === "bad").length;
     view.innerHTML = `
+      ${bigTitle("Mes vendeurs", `${stores.length} vendeurs · <span class="dot ok"></span> fonctionne · <span class="dot bad"></span> introuvable`)}
       <form class="searchbar" id="addf">
-        <input id="add" placeholder="Lien ou nom (ex : abc.x.yupoo.com)" autocomplete="off" autocapitalize="off">
-        <button class="btn">Ajouter</button>
+        <label class="field"><input id="add" placeholder="Lien ou nom Yupoo à ajouter" autocomplete="off" autocapitalize="off"></label>
+        <button class="btn small">Ajouter</button>
       </form>
-      <div class="row" style="margin-bottom:10px">
+      <div class="row" style="margin-bottom:16px">
         <button class="btn small ghost" id="check">Tester tous les vendeurs</button>
         ${bad ? `<button class="btn small ghost" id="rmbad">Retirer les ${bad} en erreur</button>` : ""}
       </div>
-      <p class="muted"><span class="dot ok" style="display:inline-block"></span> fonctionne · <span class="dot bad" style="display:inline-block"></span> introuvable (nom à corriger)</p>
-      <div class="edit-list">${stores.map((s, i) => `
-        <div class="er"><i class="dot ${status[s] || ""}"></i><span>${esc(s)}</span>
-          <button data-ren="${i}">Renommer</button><button data-del="${i}">✕</button></div>`).join("")}</div>
+      <div class="list">${stores.map((s, i) => `
+        <div class="er"><i class="lg"><i class="dot ${status[s] || ""}"></i></i><span>${esc(s)}</span>
+          <button data-ren="${i}">Renommer</button><button class="del" data-del="${i}">Retirer</button></div>`).join("")}</div>
       <button class="btn ghost block" id="reset">Remettre la liste de départ</button>`;
     $("#addf").onsubmit = (e) => {
       e.preventDefault();
@@ -497,6 +551,7 @@
     const parts = path.split("/").filter(Boolean);
     let tab = "stores";
     window.scrollTo(0, 0);
+    onScroll();
     if (parts[0] === "s" && parts[1]) {
       parts[2] === "a" && parts[3] ? viewAlbum(parts[1], parts[3]) : viewStore(parts[1]);
     } else if (parts[0] === "search") { tab = "search"; viewSearch(params.get("q") || ""); }
@@ -505,6 +560,8 @@
     else viewStores();
     document.querySelectorAll(".tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   }
+  const onScroll = () => document.body.classList.toggle("scrolled", window.scrollY > 30);
+  window.addEventListener("scroll", onScroll, { passive: true });
   $("#back").onclick = () => (history.length > 1 ? history.back() : (location.hash = "#/"));
   window.addEventListener("hashchange", route);
   route();

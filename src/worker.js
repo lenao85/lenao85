@@ -65,6 +65,13 @@ async function api(path, sp) {
     const html = await getHtml(urls.albums(s, page(sp)), s);
     return json({ store: s, name: parseStoreName(html), pages: parsePageCount(html), albums: parseAlbumList(html) }, 200, 1800);
   }
+  if (path === "/api/preview") {
+    // aperçu léger d'un vendeur pour la page d'accueil : 4 dernières couvertures
+    const s = needStore(sp);
+    const html = await getHtml(urls.albums(s, 1), s);
+    const albums = parseAlbumList(html);
+    return json({ store: s, pages: parsePageCount(html), covers: albums.filter((a) => a.cover).slice(0, 4).map((a) => a.cover) }, 200, 21600);
+  }
   if (path === "/api/album") {
     const s = needStore(sp);
     const id = sp.get("id") || "";
