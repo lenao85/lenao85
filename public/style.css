@@ -247,3 +247,21 @@ main { padding: 0 16px 16px; }
 .fade-in { animation: fade .25s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .btn svg { width: 20px; height: 20px; flex: none; }
+
+/* ---------- Fiche d'identification ---------- */
+.ident { margin-top: 16px; }
+.ident-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.ident .ai { font-size: 13px; font-weight: 600; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.ident .conf { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+.conf.ok { background: rgba(52, 199, 89, .16); color: #248a3d; }
+.conf.mid { background: rgba(255, 159, 10, .16); color: #c26e00; }
+.conf.low { background: rgba(255, 59, 48, .14); color: #d70015; }
+@media (prefers-color-scheme: dark) { .conf.ok { color: #30d158; } .conf.mid { color: #ffb340; } .conf.low { color: #ff6961; } }
+.ident .brand { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.ident h3 { font-size: 24px; margin: 2px 0 10px; }
+.facts { border-radius: 12px; background: var(--fill); overflow: hidden; }
+.fact { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; font-size: 15px; }
+.fact + .fact { border-top: .5px solid var(--sep); }
+.fact span { color: var(--muted); flex: none; }
+.fact b { font-weight: 600; text-align: right; }
+#refCopy b { color: var(--accent); font-family: ui-monospace, "SF Mono", Menlo, monospace; }

@@ -428,6 +428,7 @@
           <input type="file" name="encoded_image" id="file" accept="image/*" hidden>
           <div id="prev"><div class="cam">${ICON.cam}</div><b>Prendre ou choisir une photo</b><div class="muted">Capture d'écran, photo d'un vêtement, d'une paire…</div></div>
         </label>
+        <div id="ident"></div>
         <div id="results"></div>
         <div id="actions" hidden>
           <div class="panel" style="margin-top:14px">
@@ -453,16 +454,21 @@
       $("#howto").hidden = true;
       const el = $("#results");
       const st = (m) => (el.innerHTML = statusHtml(m));
+      $("#ident").innerHTML = "";
+      let matches = [];
       try {
         await Promise.all([loadModel(st), loadIndex(() => {})]);
         st("Analyse de la photo…");
         const q = await embedBlob(f);
         st("Comparaison avec tous les vendeurs…");
         await new Promise((r) => setTimeout(r, 30));
-        renderMatches(el, nearest(q), "");
+        matches = nearest(q);
+        renderMatches(el, matches, "");
       } catch (e) {
         el.innerHTML = `<p class="err" style="margin-top:12px">${esc(e.message)}</p>`;
       }
+      // identification par IA (marque, modèle, référence), aidée par les titres des albums ressemblants
+      identifyPhoto(f, matches.slice(0, 8).map((m) => m.a.title), $("#ident"));
     };
     $("#bing").onclick = async () => {
       const f = file.files[0];
@@ -475,6 +481,44 @@
       inp.type = "hidden"; inp.name = "imageBin"; inp.value = b64;
       form.appendChild(inp); document.body.appendChild(form); form.submit(); form.remove();
     };
+  }
+
+  async function identifyPhoto(file, hints, el) {
+    el.innerHTML = `<div class="panel ident">${statusHtml("Identification de l'article…")}</div>`;
+    try {
+      const image = await toJpegBase64(file, 768);
+      const res = await fetch("/api/identify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image, hints }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || d.error) throw new Error(d.error || "Service indisponible");
+      const ref = d.reference;
+      const name = [d.marque, d.modele].filter(Boolean).join(" ");
+      const facts = [
+        ["Référence", ref], ["Coloris", d.coloris], ["Catégorie", d.categorie], ["Collab", d.collab],
+        ["Année", d.annee], ["Origine de la marque", d.pays_marque], ["Prix officiel", d.prix_officiel],
+      ].filter(([, v]) => v && String(v).toLowerCase() !== "null");
+      const conf = { haute: ["Sûr", "ok"], moyenne: ["Probable", "mid"], faible: ["Incertain", "low"] }[String(d.confiance).toLowerCase()] || ["Estimation", "mid"];
+      const q = ref || name;
+      el.innerHTML = `<div class="panel ident fade-in">
+        <div class="ident-top"><span class="ai">✨ Identifié par IA</span><span class="conf ${conf[1]}">${conf[0]}</span></div>
+        ${d.marque ? `<div class="brand">${esc(d.marque)}</div>` : ""}
+        <h3>${esc(d.modele || name || "Article")}</h3>
+        <div class="facts">${facts.map(([k, v]) => `<div class="fact"${k === "Référence" ? ` id="refCopy"` : ""}><span>${k}</span><b>${esc(v)}${k === "Référence" ? " ⧉" : ""}</b></div>`).join("")}</div>
+        ${d.explication ? `<p class="muted" style="margin:10px 0 0">${esc(d.explication)}</p>` : ""}
+        <div class="row" style="margin-top:12px">
+          <a class="btn small" href="#/search?q=${encodeURIComponent(q)}">Chercher chez mes vendeurs</a>
+          <a class="btn small ghost" href="https://www.google.com/search?q=${encodeURIComponent([name, ref].filter(Boolean).join(" "))}" target="_blank" rel="noopener">Google</a>
+        </div>
+        <p class="muted" style="margin:10px 0 0;font-size:12px">L'IA peut se tromper : vérifie la référence avant d'acheter.</p>
+      </div>`;
+      const rc = $("#refCopy");
+      if (rc) rc.onclick = () => copy(ref);
+    } catch (e) {
+      el.innerHTML = `<div class="panel ident"><p class="muted" style="margin:0">Identification indisponible pour le moment (${esc(e.message)}).</p></div>`;
+    }
   }
 
   function toJpegBase64(file, max) {
