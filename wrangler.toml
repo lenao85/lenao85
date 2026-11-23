@@ -7,3 +7,7 @@ directory = "./public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*", "/img", "/index/*", "/models/*"]
+
+# IA gratuite de Cloudflare (identification des articles en photo)
+[ai]
+binding = "AI"

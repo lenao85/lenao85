@@ -141,10 +141,81 @@ async function modelFile(path) {
   });
 }
 
+// ---------- Identification d'un article (marque, modèle, référence) ----------
+// IA gratuite de Cloudflare (Workers AI). On essaie plusieurs modèles d'image dans l'ordre.
+const VISION_MODELS = [
+  "@cf/meta/llama-4-scout-17b-16e-instruct",
+  "@cf/mistralai/mistral-small-3.1-24b-instruct",
+  "@cf/google/gemma-3-12b-it",
+  "@cf/meta/llama-3.2-11b-vision-instruct",
+];
+
+const IDENTIFY_PROMPT = `Tu es un expert en mode, sneakers, streetwear et luxe.
+Identifie l'article principal visible sur la photo.
+Des titres d'annonces qui ressemblent visuellement à cette photo sont fournis comme INDICES : ils contiennent souvent le nom exact du modèle et la référence (code style / SKU, ex : "DV1310-401", "FZ5758-004"). Utilise-les seulement s'ils correspondent vraiment à ce que tu vois sur la photo ; ignore les prix et les mots chinois.
+Réponds UNIQUEMENT avec un objet JSON, sans texte autour, avec ces clés (valeurs en français, null si inconnu) :
+{"marque": "", "modele": "", "coloris": "", "reference": "", "categorie": "", "collab": "", "annee": "", "pays_marque": "", "prix_officiel": "", "confiance": "haute|moyenne|faible", "explication": "1 à 2 phrases : ce qui permet de reconnaître l'article"}
+- "reference" = code style / SKU officiel de la marque si tu le connais ou s'il apparaît dans les indices, sinon null. N'invente pas de référence.
+- "pays_marque" = pays d'origine de la marque (ex : "États-Unis", "France", "Italie").
+- "prix_officiel" = prix de vente officiel approximatif en euros si tu le connais.`;
+
+function parseJsonLoose(text) {
+  if (text && typeof text === "object") return text;
+  const m = String(text || "").match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch { return null; }
+}
+
+async function runVision(env, model, b64, hints) {
+  const text = `${IDENTIFY_PROMPT}\n\nINDICES (titres d'albums ressemblants) :\n${hints.length ? hints.map((h) => "- " + h).join("\n") : "(aucun)"}`;
+  const input = {
+    messages: [
+      { role: "user", content: [
+        { type: "text", text },
+        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
+      ] },
+    ],
+    max_tokens: 700,
+    temperature: 0.2,
+  };
+  try {
+    return await env.AI.run(model, input);
+  } catch (e) {
+    // Le modèle Llama 3.2 Vision demande d'accepter sa licence une première fois
+    if (/agree/i.test(String(e?.message))) {
+      await env.AI.run(model, { prompt: "agree" }).catch(() => {});
+      return await env.AI.run(model, input);
+    }
+    throw e;
+  }
+}
+
+async function identify(request, env) {
+  if (request.method !== "POST") throw new HttpError(405, "POST attendu");
+  if (!env.AI) throw new HttpError(501, "IA non configurée sur le serveur");
+  const body = await request.json().catch(() => null);
+  const b64 = typeof body?.image === "string" ? body.image.replace(/^data:[^,]+,/, "") : "";
+  if (!b64 || b64.length > 3_000_000) throw new HttpError(400, "Image manquante ou trop lourde");
+  const hints = (Array.isArray(body.hints) ? body.hints : []).slice(0, 10).map((h) => String(h).slice(0, 160));
+  const errors = [];
+  for (const model of VISION_MODELS) {
+    try {
+      const out = await runVision(env, model, b64, hints);
+      const data = parseJsonLoose(out?.response ?? out?.result?.response ?? out);
+      if (data && (data.marque || data.modele)) return json({ model, ...data });
+      errors.push(`${model}: réponse illisible`);
+    } catch (e) {
+      errors.push(`${model}: ${String(e?.message || e).slice(0, 120)}`);
+    }
+  }
+  return json({ error: "Impossible d'identifier l'article", details: errors }, 502);
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
+      if (url.pathname === "/api/identify") return await identify(request, env);
       if (url.pathname.startsWith("/api/")) return await api(url.pathname, url.searchParams);
       if (url.pathname === "/img") return await image(url.searchParams, ctx);
       if (url.pathname.startsWith("/index/")) return await indexFile(url.pathname.slice(7), env);
