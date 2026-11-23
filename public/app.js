@@ -122,6 +122,7 @@
         <span><b>Rechercher partout</b><span>Un article chez tous tes vendeurs</span></span>
         <span class="arrow">${ICON.chevron}</span>
       </a>
+      <a class="agent-row" href="#/agent"><span class="ag-ic">🛒</span><span><b>Mon agent</b><small>${agent ? esc(agent.name) + (Object.keys(agent.templates || {}).length ? " · ouverture directe" : " · lien copié") : "Non configuré"}</small></span>${ICON.chevron}</a>
       ${fl.length ? `<div class="section-title">Favoris</div>
         <div class="favs">${fl.map((s) => {
           const c = getPreview(s)?.covers?.[0];
@@ -197,6 +198,146 @@
     load(true);
   }
 
+  // ---------- Agent d'achat (Hipobuy, Boonbuy, CNFans…) ----------
+  // L'appli ne se connecte pas au compte de l'agent (pas de mot de passe) : elle ouvre la page de l'article
+  // chez l'agent dans Safari, où tu es déjà connecté, pour l'ajouter au panier en un geste.
+  const AGENTS = [
+    { name: "Hipobuy", home: "https://hipobuy.com" },
+    { name: "Boonbuy", home: "" },
+    { name: "CNFans", home: "https://cnfans.com" },
+    { name: "Kakobuy", home: "https://www.kakobuy.com" },
+    { name: "Mulebuy", home: "https://mulebuy.com" },
+    { name: "Superbuy", home: "https://www.superbuy.com" },
+    { name: "AllChinaBuy", home: "https://www.allchinabuy.com" },
+    { name: "Sugargoo", home: "https://www.sugargoo.com" },
+  ];
+  const PLATFORMS = { taobao: "Taobao", weidian: "Weidian", "1688": "1688" };
+  const platLabel = (p) => PLATFORMS[p] || "Lien";
+  let agent = store.get("agent", null); // { name, home, templates: { taobao, weidian, 1688 } }
+  const saveAgent = () => store.set("agent", agent);
+
+  function deepDecode(u) {
+    let v = String(u || "");
+    for (let i = 0; i < 3 && /%[0-9a-f]{2}/i.test(v); i++) { try { v = decodeURIComponent(v); } catch { break; } }
+    return v;
+  }
+
+  // Lien Taobao / Weidian / 1688 → { platform, id }
+  function parseMarket(u) {
+    const v = deepDecode(u);
+    let m;
+    // liens courts (m.tb.cn, k.youshop10.com…) : pas de numéro d'article lisible, on proposera de copier le lien
+    if (/(tb\.cn|youshop|weidian\.com|taobao\.com|tmall\.com|1688\.com)/i.test(v) && !/itemI[dD]=|[?&]id=\d|offer\//.test(v)) return { platform: "lien", id: null };
+    if (/weidian\.com/i.test(v) && (m = v.match(/itemI[dD]=(\d{5,})/))) return { platform: "weidian", id: m[1] };
+    if (/(taobao|tmall)\.com/i.test(v) && (m = v.match(/[?&]id=(\d{5,})/))) return { platform: "taobao", id: m[1] };
+    if (/1688\.com/i.test(v) && (m = v.match(/offer\/(\d{5,})/))) return { platform: "1688", id: m[1] };
+    return null;
+  }
+
+  // Apprend le format des liens de l'agent à partir d'un exemple : le numéro de l'article devient {id}
+  function learnTemplate(example) {
+    const raw = String(example || "").trim();
+    if (!/^https?:\/\//i.test(raw)) return null;
+    const ids = deepDecode(raw).match(/\d{6,}/g);
+    if (!ids) return null;
+    const id = ids.sort((a, b) => b.length - a.length)[0];
+    if (!raw.includes(id)) return null;
+    const v = deepDecode(raw).toLowerCase();
+    const guess = /weidian|\bwd\b/.test(v) ? "weidian" : /taobao|tmall/.test(v) ? "taobao" : /1688|alibaba/.test(v) ? "1688" : null;
+    return { template: raw.split(id).join("{id}"), guess };
+  }
+
+  function agentLink(market) {
+    if (!market.id) return null;
+    const t = agent?.templates?.[market.platform];
+    return t ? t.split("{id}").join(market.id) : null;
+  }
+
+  function buyPanel(a) {
+    const markets = a.links.map((l) => ({ url: l, m: parseMarket(l) })).filter((x) => x.m);
+    if (!agent) {
+      return `<div class="panel buy"><h2>Acheter via ton agent</h2>
+        <div class="muted">Ajoute cet article au panier de ton agent (Hipobuy, Boonbuy…) en un geste.</div>
+        <a class="btn grad block" href="#/agent">Configurer mon agent</a></div>`;
+    }
+    if (!markets.length) {
+      return `<div class="panel buy"><h2>Acheter via ${esc(agent.name)}</h2>
+        <div class="muted">Le vendeur n'a pas mis de lien Taobao ou Weidian dans cet album. Demande-le-lui (WhatsApp/WeChat souvent indiqués sur sa page), ou cherche le même article chez un autre vendeur.</div></div>`;
+    }
+    return `<div class="panel buy"><h2>Acheter via ${esc(agent.name)}</h2>
+      ${markets.map((x, i) => {
+        const direct = agentLink(x.m);
+        return `<button class="btn ${i ? "ghost" : "grad"} block" data-buy="${i}">${direct ? "🛒 Ouvrir chez " + esc(agent.name) : "🛒 Copier le lien et ouvrir " + esc(agent.name)}<small class="plat">${platLabel(x.m.platform)}</small></button>`;
+      }).join("")}
+      <div class="muted" style="margin-top:8px;font-size:13px">${markets.some((x) => agentLink(x.m))
+        ? "La page de l'article s'ouvre chez ton agent : choisis la taille puis « Ajouter au panier »."
+        : `Le lien ${platLabel(markets[0].m.platform)} est copié : colle-le dans la barre de recherche de ${esc(agent.name)}. <a href="#/agent" style="color:var(--accent)">Apprends le format à l'appli</a> pour ouvrir l'article directement.`}</div>
+    </div>`;
+  }
+
+  function bindBuy(a) {
+    const markets = a.links.map((l) => ({ url: l, m: parseMarket(l) })).filter((x) => x.m);
+    view.querySelectorAll("[data-buy]").forEach((b) => (b.onclick = async () => {
+      const x = markets[+b.dataset.buy];
+      const direct = agentLink(x.m);
+      if (direct) { window.open(direct, "_blank", "noopener"); return; }
+      try { await navigator.clipboard.writeText(x.url); toast("Lien copié, colle-le chez " + agent.name); } catch {}
+      if (agent.home) window.open(agent.home, "_blank", "noopener");
+    }));
+  }
+
+  function viewAgent() {
+    header("Mon agent", { back: true });
+    const cur = agent || { name: "", home: "", templates: {} };
+    const tpl = cur.templates || {};
+    view.innerHTML = `
+      ${bigTitle("Mon agent", "Ajoute les articles au panier de ton agent en un geste")}
+      <div class="panel">
+        <h2>1. Choisis ton agent</h2>
+        <div class="chips" style="flex-wrap:wrap;margin:8px 0 0">${AGENTS.map((g) => `<button class="chip ${cur.name === g.name ? "on" : ""}" data-ag="${esc(g.name)}">${esc(g.name)}</button>`).join("")}<button class="chip ${cur.name && !AGENTS.some((g) => g.name === cur.name) ? "on" : ""}" data-ag="">Autre</button></div>
+        <label class="field" style="margin-top:12px"><input id="agName" placeholder="Nom de l'agent" value="${esc(cur.name)}"></label>
+        <label class="field" style="margin-top:8px"><input id="agHome" placeholder="Adresse du site (ex : https://www.boonbuy.com)" value="${esc(cur.home)}" autocapitalize="off"></label>
+      </div>
+      <div class="panel">
+        <h2>2. Apprends le format à l'appli</h2>
+        <div class="muted" style="line-height:1.45">Sur le site de ton agent, ouvre n'importe quel article venant de <b>Weidian</b>, copie l'adresse de la page et colle-la ci-dessous. Fais pareil avec un article <b>Taobao</b>. L'appli saura alors ouvrir directement chaque article chez ton agent.</div>
+        ${Object.entries(PLATFORMS).map(([k, label]) => `
+          <div class="learn"><div class="learn-h"><b>Article ${label}</b>${tpl[k] ? `<span class="okk">✓ Appris</span>` : `<span class="muted">optionnel</span>`}</div>
+          <label class="field"><input data-learn="${k}" placeholder="Lien d'un article ${label} chez ton agent" autocapitalize="off" autocomplete="off"></label>
+          ${tpl[k] ? `<div class="muted tplv">${esc(tpl[k])}</div>` : ""}</div>`).join("")}
+      </div>
+      <button class="btn block" id="agSave">Enregistrer</button>
+      ${agent ? `<button class="btn ghost block" id="agDel" style="color:var(--err)">Retirer mon agent</button>` : ""}
+      <div class="panel" style="margin-top:16px"><h2>🔒 Ton compte reste privé</h2>
+        <div class="muted" style="line-height:1.45">L'appli ne te demande jamais ton mot de passe. Connecte-toi une fois sur le site de ton agent dans Safari : comme tu restes connecté, chaque article que l'appli ouvre arrive directement sur ton compte. Tu n'as plus qu'à choisir la taille et toucher « Ajouter au panier ».</div></div>`;
+    view.querySelectorAll("[data-ag]").forEach((c) => (c.onclick = () => {
+      const g = AGENTS.find((x) => x.name === c.dataset.ag);
+      $("#agName").value = g ? g.name : "";
+      $("#agHome").value = g ? g.home : "";
+      view.querySelectorAll("[data-ag]").forEach((x) => x.classList.toggle("on", x === c));
+      if (!g) $("#agName").focus();
+    }));
+    $("#agSave").onclick = () => {
+      const name = $("#agName").value.trim();
+      let home = $("#agHome").value.trim();
+      if (!name) return toast("Choisis ton agent");
+      if (home && !/^https?:\/\//i.test(home)) home = "https://" + home;
+      const templates = { ...(agent?.name === name ? agent.templates : {}) };
+      for (const inp of view.querySelectorAll("[data-learn]")) {
+        if (!inp.value.trim()) continue;
+        const r = learnTemplate(inp.value);
+        if (!r) return toast(`Lien ${PLATFORMS[inp.dataset.learn]} non reconnu`);
+        if (r.guess && r.guess !== inp.dataset.learn && !confirm(`Ce lien ressemble à un article ${PLATFORMS[r.guess]}, pas ${PLATFORMS[inp.dataset.learn]}. L'utiliser quand même ?`)) return;
+        templates[inp.dataset.learn] = r.template;
+        if (!home) { try { home = new URL(inp.value.trim()).origin; } catch {} }
+      }
+      agent = { name, home, templates };
+      saveAgent(); toast(`${name} enregistré`); viewAgent();
+    };
+    const del = $("#agDel");
+    if (del) del.onclick = () => { if (confirm("Retirer ton agent ?")) { agent = null; store.set("agent", null); viewAgent(); } };
+  }
+
   // ---------- Écran : un album ----------
   async function viewAlbum(s, id) {
     header(s, { back: true });
@@ -216,6 +357,7 @@
             <button class="btn ghost" id="cp">Copier le lien</button>
           </div>
         </div>
+        ${buyPanel(a)}
         ${a.links.length ? `<div class="panel links"><h2>Liens d'achat</h2>${a.links.map((l) => `<a href="${esc(l)}" target="_blank" rel="noopener">${esc(l)}</a>`).join("")}</div>` : ""}
         <div class="panel"><h2>Le même article ailleurs</h2>
           <div class="muted">Chez tes autres vendeurs</div>
@@ -226,6 +368,7 @@
           </div>
         </div>`;
       $("#simBtn").onclick = () => similarForAlbum(s, id, a.photos[0]?.thumb, $("#similar"));
+      bindBuy(a);
       $("#cp").onclick = () => copy(a.url);
       $("#same").onclick = () => { location.hash = `#/search?q=${encodeURIComponent(keywords(a.title))}`; };
       view.querySelector(".photos").onclick = (e) => {
@@ -259,7 +402,7 @@
   $("#lbClose").onclick = () => { $("#lightbox").hidden = true; $("#lbScroll").innerHTML = ""; };
 
   // ---------- Écran : recherche sur tous les vendeurs ----------
-  let lastSearch = { q: "", results: [], errors: [], done: 0, filter: null };
+  let lastSearch = { q: "", results: [], errors: [], done: 0, filter: null, extra: [], extraState: "" };
 
   function viewSearch(q0) {
     header("Recherche", { large: true });
@@ -285,8 +428,9 @@
 
   async function runSearch(q) {
     const signal = newCtrl();
-    lastSearch = { q, results: [], errors: [], done: 0, filter: null };
+    lastSearch = { q, results: [], errors: [], done: 0, filter: null, extra: [], extraState: "loading" };
     renderResults();
+    const discovering = discoverOthers(q, signal); // en parallèle : autres vendeurs Yupoo
     await pool(stores, 4, async (s) => {
       if (signal.aborted) return;
       try {
@@ -300,6 +444,27 @@
       lastSearch.done++;
       if (lastSearch.q === q && !signal.aborted) renderResults();
     });
+    await discovering;
+  }
+
+  // Vendeurs Yupoo qui ne sont pas dans ta liste, trouvés via un moteur de recherche
+  async function discoverOthers(q, signal) {
+    try {
+      const d = await api("discover", { q }, signal);
+      const others = d.stores.filter((x) => !stores.includes(x.store)).slice(0, 10);
+      await pool(others, 3, async (o) => {
+        try {
+          const r = await api("search", { s: o.store, q }, signal);
+          if (r.albums.length) lastSearch.extra.push({ s: o.store, albums: r.albums, pages: r.pages });
+        } catch (e) { if (e.name === "AbortError") throw e; }
+        if (lastSearch.q === q && !signal.aborted) renderResults();
+      });
+      lastSearch.extraState = "done";
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      lastSearch.extraState = "error";
+    }
+    if (lastSearch.q === q && !signal.aborted) renderResults();
   }
 
   function renderResults() {
@@ -322,8 +487,28 @@
       </div>` : ""}
       <div class="grid">${mixed.map(([a, s]) => itemCard(a, s, true)).join("")}</div>
       ${filter && results.find((r) => r.s === filter)?.pages > 1 ? `<a class="btn ghost block" href="#/s/${esc(filter)}">Plus de résultats chez ${esc(filter)}</a>` : ""}
-      ${finished && !total ? `<div class="empty-state"><div class="big">🤷</div><b>Rien trouvé</b>Essaie un autre mot (souvent en anglais) ou la recherche par photo.</div>` : ""}`;
+      ${finished && !total ? `<div class="empty-state"><div class="big">🤷</div><b>Rien trouvé chez tes vendeurs</b>Regarde les autres vendeurs ci-dessous, essaie un autre mot (souvent en anglais) ou la recherche par photo.</div>` : ""}
+      ${filter ? "" : renderExtra()}`;
     out.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { lastSearch.filter = c.dataset.f || null; renderResults(); }));
+    out.querySelectorAll("[data-addstore]").forEach((b) => (b.onclick = (e) => {
+      e.preventDefault();
+      const st = b.dataset.addstore;
+      if (!stores.includes(st)) { stores.push(st); saveStores(); }
+      b.textContent = "✓ Ajouté"; b.disabled = true;
+      toast(`${st} ajouté à tes vendeurs`);
+    }));
+  }
+
+  function renderExtra() {
+    const { extra, extraState } = lastSearch;
+    if (!extra.length && extraState !== "loading") return extraState === "done" ? "" : "";
+    return `<div class="section-title" style="margin-top:26px">Autres vendeurs Yupoo <small>pas dans ta liste</small></div>
+      ${extra.map((r) => `<div class="other">
+        <div class="other-head"><i class="lg"></i><a href="#/s/${esc(r.s)}"><b>${esc(r.s)}</b><small>${r.albums.length}${r.pages > 1 ? "+" : ""} albums trouvés</small></a>
+          ${stores.includes(r.s) ? `<span class="muted">✓ Dans ta liste</span>` : `<button class="btn small ghost" data-addstore="${esc(r.s)}">+ Ajouter</button>`}</div>
+        <div class="hscroll">${r.albums.slice(0, 8).map((a) => itemCard(a, r.s)).join("")}</div>
+      </div>`).join("")}
+      ${extraState === "loading" ? `<div class="spinner"></div><p class="center muted" style="padding-top:0">Recherche d'autres vendeurs…</p>` : ""}`;
   }
 
   // ---------- Recherche visuelle (dans l'iPhone) ----------
@@ -619,6 +804,7 @@
     } else if (parts[0] === "search") { tab = "search"; viewSearch(params.get("q") || ""); }
     else if (parts[0] === "photo") { tab = "photo"; viewPhoto(); }
     else if (parts[0] === "edit") viewEdit();
+    else if (parts[0] === "agent") viewAgent();
     else viewStores();
     document.querySelectorAll(".tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   }

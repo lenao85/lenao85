@@ -273,3 +273,28 @@ main { padding: 0 16px 16px; }
 .cand small { display: block; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cand.on b { color: var(--accent); }
 .cand.on b::after { content: "  ← choisie par l'IA"; font-family: -apple-system, system-ui, sans-serif; font-weight: 500; font-size: 12px; }
+
+/* ---------- Autres vendeurs (découverte) ---------- */
+.other { margin-bottom: 18px; }
+.other-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.other-head .lg { width: 34px; height: 34px; border-radius: 10px; background: #fff url(/icons/yupoo.png) center/80% no-repeat; box-shadow: 0 0 0 .5px var(--sep); flex: none; }
+.other-head a { flex: 1; min-width: 0; }
+.other-head b { display: block; font-size: 16px; }
+.other-head small { color: var(--muted); font-size: 13px; }
+.hscroll { display: flex; gap: 10px; overflow-x: auto; margin: 0 -16px; padding: 0 16px 4px; scrollbar-width: none; scroll-snap-type: x mandatory; }
+.hscroll::-webkit-scrollbar { display: none; }
+.hscroll .item { flex: none; width: 42%; scroll-snap-align: start; }
+
+/* ---------- Agent ---------- */
+.agent-row { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 16px; padding: 12px 14px; margin: -8px 0 22px; box-shadow: var(--shadow); color: var(--muted); }
+.agent-row .ag-ic { width: 34px; height: 34px; border-radius: 10px; background: var(--fill); display: grid; place-items: center; font-size: 18px; }
+.agent-row span:nth-child(2) { flex: 1; }
+.agent-row b { display: block; color: var(--text); font-size: 16px; font-weight: 600; }
+.agent-row small { font-size: 13px; }
+.buy .btn { position: relative; }
+.buy .plat { position: absolute; right: 12px; font-size: 11px; font-weight: 600; opacity: .75; background: rgba(255,255,255,.2); padding: 2px 7px; border-radius: 10px; }
+.buy .btn.ghost .plat { background: var(--fill2); }
+.learn { margin-top: 14px; }
+.learn-h { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 15px; }
+.learn .okk { color: #34c759; font-weight: 600; font-size: 14px; }
+.tplv { font-size: 11.5px; margin-top: 4px; word-break: break-all; font-family: ui-monospace, Menlo, monospace; }
