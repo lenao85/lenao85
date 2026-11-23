@@ -468,7 +468,7 @@
         el.innerHTML = `<p class="err" style="margin-top:12px">${esc(e.message)}</p>`;
       }
       // identification par IA (marque, modèle, référence), aidée par les titres des albums ressemblants
-      identifyPhoto(f, matches.slice(0, 8).map((m) => m.a.title), $("#ident"));
+      identifyPhoto(f, matches, $("#ident"));
     };
     $("#bing").onclick = async () => {
       const f = file.files[0];
@@ -483,7 +483,21 @@
     };
   }
 
-  async function identifyPhoto(file, hints, el) {
+  // Références (codes style) présentes dans les titres des albums ressemblants
+  const REF_RE = /\b(?:[A-Z]{1,3}\d{3,5}-\d{3}|[A-Z]{2}\d{4})\b/g;
+  function refCandidates(matches) {
+    const seen = new Map();
+    for (const m of matches.slice(0, 30)) {
+      for (const r of (m.a.title || "").toUpperCase().match(REF_RE) || []) {
+        if (!seen.has(r)) seen.set(r, m);
+      }
+    }
+    return [...seen].slice(0, 6);
+  }
+
+  async function identifyPhoto(file, matches, el) {
+    const hints = matches.slice(0, 8).map((m) => m.a.title);
+    const cands = refCandidates(matches);
     el.innerHTML = `<div class="panel ident">${statusHtml("Identification de l'article…")}</div>`;
     try {
       const image = await toJpegBase64(file, 768);
@@ -508,6 +522,9 @@
         <h3>${esc(d.modele || name || "Article")}</h3>
         <div class="facts">${facts.map(([k, v]) => `<div class="fact"${k === "Référence" ? ` id="refCopy"` : ""}><span>${k}</span><b>${esc(v)}${k === "Référence" ? " ⧉" : ""}</b></div>`).join("")}</div>
         ${d.explication ? `<p class="muted" style="margin:10px 0 0">${esc(d.explication)}</p>` : ""}
+        ${cands.length ? `<div class="cands"><div class="muted" style="margin:14px 0 6px">Références vues dans les albums ressemblants :</div>
+          ${cands.map(([r, m]) => `<a class="cand${r === String(ref).toUpperCase() ? " on" : ""}" href="#/s/${esc(m.s)}/a/${esc(m.a.id)}">
+            <img loading="lazy" src="${img(m.a.cover)}" alt=""><span><b>${esc(r)}</b><small>${esc(m.a.title)}</small></span>${ICON.chevron}</a>`).join("")}</div>` : ""}
         <div class="row" style="margin-top:12px">
           <a class="btn small" href="#/search?q=${encodeURIComponent(q)}">Chercher chez mes vendeurs</a>
           <a class="btn small ghost" href="https://www.google.com/search?q=${encodeURIComponent([name, ref].filter(Boolean).join(" "))}" target="_blank" rel="noopener">Google</a>

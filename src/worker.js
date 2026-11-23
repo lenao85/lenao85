@@ -152,12 +152,17 @@ const VISION_MODELS = [
 
 const IDENTIFY_PROMPT = `Tu es un expert en mode, sneakers, streetwear et luxe.
 Identifie l'article principal visible sur la photo.
-Des titres d'annonces qui ressemblent visuellement à cette photo sont fournis comme INDICES : ils contiennent souvent le nom exact du modèle et la référence (code style / SKU, ex : "DV1310-401", "FZ5758-004"). Utilise-les seulement s'ils correspondent vraiment à ce que tu vois sur la photo ; ignore les prix et les mots chinois.
+Des titres d'annonces qui ressemblent visuellement à cette photo sont fournis comme INDICES, classés du plus au moins ressemblant. Ils contiennent souvent le nom du modèle et la référence (code style / SKU, ex : "DV1310-401", "FZ5758-004"), mais beaucoup concernent d'AUTRES coloris du même modèle.
+Ne reprends la référence d'un indice que si son coloris correspond aux couleurs visibles sur la photo. Les couleurs sont souvent écrites en chinois : 黑 noir, 白 blanc, 灰 gris, 红 rouge, 蓝 bleu, 黄 jaune, 绿 vert, 粉 rose, 紫 violet, 橙 orange, 棕 marron, 米 beige/crème, 银 argent, 金 or. Les noms de coloris en anglais aussi (Bred = noir/rouge, Dawn, Grape…).
+Si plusieurs indices correspondent avec des références différentes, ou si aucun ne correspond clairement, mets "reference": null et "confiance": "moyenne" ou "faible".
 Réponds UNIQUEMENT avec un objet JSON, sans texte autour, avec ces clés (valeurs en français, null si inconnu) :
 {"marque": "", "modele": "", "coloris": "", "reference": "", "categorie": "", "collab": "", "annee": "", "pays_marque": "", "prix_officiel": "", "confiance": "haute|moyenne|faible", "explication": "1 à 2 phrases : ce qui permet de reconnaître l'article"}
 - "reference" = code style / SKU officiel de la marque si tu le connais ou s'il apparaît dans les indices, sinon null. N'invente pas de référence.
 - "pays_marque" = pays d'origine de la marque (ex : "États-Unis", "France", "Italie").
 - "prix_officiel" = prix de vente officiel approximatif en euros si tu le connais.`;
+
+// Codes style courants (Nike/Jordan : DV1310-401 ; adidas : GY7924)
+const REF_RE = /\b(?:[A-Z]{1,3}\d{3,5}-\d{3}|[A-Z]{2}\d{4})\b/g;
 
 function parseJsonLoose(text) {
   if (text && typeof text === "object") return text;
@@ -202,7 +207,12 @@ async function identify(request, env) {
     try {
       const out = await runVision(env, model, b64, hints);
       const data = parseJsonLoose(out?.response ?? out?.result?.response ?? out);
-      if (data && (data.marque || data.modele)) return json({ model, ...data });
+      if (data && (data.marque || data.modele)) {
+        // si la référence vient des indices alors que ceux-ci en proposent plusieurs, on ne se dit pas « sûr »
+        const refs = new Set(hints.flatMap((h) => h.toUpperCase().match(REF_RE) || []));
+        if (data.reference && refs.size > 1 && String(data.confiance).toLowerCase() === "haute") data.confiance = "moyenne";
+        return json({ model, ...data });
+      }
       errors.push(`${model}: réponse illisible`);
     } catch (e) {
       errors.push(`${model}: ${String(e?.message || e).slice(0, 120)}`);

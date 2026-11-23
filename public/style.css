@@ -265,3 +265,11 @@ main { padding: 0 16px 16px; }
 .fact span { color: var(--muted); flex: none; }
 .fact b { font-weight: 600; text-align: right; }
 #refCopy b { color: var(--accent); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.cand { display: flex; align-items: center; gap: 10px; padding: 7px 0; color: var(--muted); }
+.cand + .cand { border-top: .5px solid var(--sep); }
+.cand img { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; background: var(--fill); flex: none; }
+.cand span { flex: 1; min-width: 0; }
+.cand b { display: block; color: var(--text); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px; }
+.cand small { display: block; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cand.on b { color: var(--accent); }
+.cand.on b::after { content: "  ← choisie par l'IA"; font-family: -apple-system, system-ui, sans-serif; font-weight: 500; font-size: 12px; }
