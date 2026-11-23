@@ -52,6 +52,40 @@ function needStore(sp) {
 
 const page = (sp) => Math.min(Math.max(parseInt(sp.get("p") || "1", 10) || 1, 1), 500);
 
+const SEARCH_ENGINES = [
+  (q) => `https://www.bing.com/search?q=${encodeURIComponent("site:x.yupoo.com " + q)}&count=50&setlang=en`,
+  (q) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent("site:x.yupoo.com " + q)}`,
+];
+const IGNORED_STORES = new Set(["www", "x", "photo", "s", "m", "api", "help"]);
+
+async function discover(q) {
+  const found = new Map(); // store -> { store, albums: [{id, title}] }
+  const tried = [];
+  for (const mk of SEARCH_ENGINES) {
+    const url = mk(q);
+    try {
+      const res = await fetch(url, { headers: { "user-agent": UA.replace("iPhone; CPU iPhone OS 17_5 like Mac OS X", "Macintosh; Intel Mac OS X 10_15_7"), "accept-language": "en-US,en;q=0.8" }, cf: { cacheTtl: 3600, cacheEverything: true } });
+      const html = await res.text();
+      tried.push(`${new URL(url).host}:${res.status}`);
+      // liens (directs ou encodés dans les redirections du moteur)
+      const text = html.replace(/%2F/gi, "/").replace(/%3A/gi, ":").replace(/%3F/gi, "?").replace(/%3D/gi, "=").replace(/%26/gi, "&");
+      const re = /https?:\/\/([a-z0-9][a-z0-9-]{1,62})\.x\.yupoo\.com(?:\/albums\/(\d{5,15}))?/gi;
+      let m;
+      while ((m = re.exec(text))) {
+        const store = m[1].toLowerCase();
+        if (IGNORED_STORES.has(store)) continue;
+        if (!found.has(store)) found.set(store, { store, albums: [] });
+        const f = found.get(store);
+        if (m[2] && !f.albums.some((a) => a.id === m[2]) && f.albums.length < 6) f.albums.push({ id: m[2] });
+      }
+      if (found.size >= 5) break;
+    } catch (e) {
+      tried.push(`${new URL(url).host}:erreur`);
+    }
+  }
+  return { q, engines: tried, stores: [...found.values()].slice(0, 25) };
+}
+
 async function api(path, sp) {
   if (path === "/api/search") {
     const s = needStore(sp);
@@ -71,6 +105,12 @@ async function api(path, sp) {
     const html = await getHtml(urls.albums(s, 1), s);
     const albums = parseAlbumList(html);
     return json({ store: s, pages: parsePageCount(html), covers: albums.filter((a) => a.cover).slice(0, 4).map((a) => a.cover) }, 200, 21600);
+  }
+  if (path === "/api/discover") {
+    // Trouve d'autres vendeurs Yupoo via un moteur de recherche (site:x.yupoo.com <recherche>)
+    const q = (sp.get("q") || "").trim().slice(0, 100);
+    if (!q) throw new HttpError(400, "Recherche vide");
+    return json(await discover(q), 200, 3600);
   }
   if (path === "/api/album") {
     const s = needStore(sp);
