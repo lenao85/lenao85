@@ -9,7 +9,7 @@ on:
     inputs:
       max_pages:
         description: "Pages de 120 albums par vendeur"
-        default: "8"
+        default: "15"
 
 permissions:
   contents: write
@@ -45,7 +45,7 @@ jobs:
       - name: Construire l'index
         run: node build-index.mjs
         env:
-          MAX_PAGES: ${{ inputs.max_pages || '8' }}
+          MAX_PAGES: ${{ inputs.max_pages || '15' }}
 
       - name: Publier
         env:

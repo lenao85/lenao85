@@ -34,7 +34,7 @@ Ta liste de vendeurs et tes favoris sont gardés sur le téléphone.
 ## Index de la recherche par photo
 
 Chaque nuit, GitHub Actions (`.github/workflows/index-photo.yml`) lance `indexer/build-index.mjs` :
-il parcourt les 8 premières pages (≈ 960 albums les plus récents) de chaque vendeur, calcule
+il parcourt les 15 premières pages (≈ 1 800 albums les plus récents) de chaque vendeur, calcule
 l'empreinte visuelle de chaque couverture et publie `meta.json` + `vecs.bin` dans la release `index`.
 Seuls les nouveaux albums sont recalculés. Lancement manuel : onglet **Actions → Index photo → Run workflow**.
 

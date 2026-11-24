@@ -106,6 +106,17 @@ async function api(path, sp) {
     const albums = parseAlbumList(html);
     return json({ store: s, pages: parsePageCount(html), covers: albums.filter((a) => a.cover).slice(0, 4).map((a) => a.cover) }, 200, 21600);
   }
+  if (path === "/api/rate") {
+    // taux de change yuan → euro (mis en cache 12 h), avec une valeur de secours
+    let eurPerCny = 0.13, eurPerUsd = 0.92, source = "secours";
+    try {
+      const r = await fetch("https://open.er-api.com/v6/latest/CNY", { cf: { cacheTtl: 43200, cacheEverything: true } });
+      const d = await r.json();
+      if (d?.rates?.EUR > 0.05 && d.rates.EUR < 0.3) { eurPerCny = d.rates.EUR; source = "open.er-api.com"; }
+      if (d?.rates?.USD > 0.05) eurPerUsd = d.rates.EUR / d.rates.USD;
+    } catch {}
+    return json({ eurPerCny, eurPerUsd, source }, 200, 43200);
+  }
   if (path === "/api/discover") {
     // Trouve d'autres vendeurs Yupoo via un moteur de recherche (site:x.yupoo.com <recherche>)
     const q = (sp.get("q") || "").trim().slice(0, 100);

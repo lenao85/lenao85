@@ -7,7 +7,7 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const img = (u) => (u ? `/img?u=${encodeURIComponent(u)}` : "");
   const yupoo = (s) => `https://${s}.x.yupoo.com`;
-  const APP_VERSION = "3.0";
+  const APP_VERSION = "4.0";
 
   // ---------- Stockage local ----------
   const store = {
@@ -20,6 +20,11 @@
   const saveStores = () => store.set("stores", stores);
   const saveFavs = () => store.set("favs", [...favs]);
   const setStatus = (s, v) => { if (status[s] !== v) { status[s] = v; store.set("status", status); } };
+  let snotes = store.get("snotes", {}); // avis perso sur les vendeurs { store: { r, note } }
+  let hist = store.get("hist", []); // recherches récentes
+  let alerts = store.get("alerts", []); // [{ q, seen: ["store:id"], t }] (+ fresh calculé)
+  const saveAlerts = () => store.set("alerts", alerts.map(({ q, seen, t: tt }) => ({ q, seen, t: tt })));
+  const alertNewTotal = () => alerts.reduce((n, a) => n + (a.fresh?.length || 0), 0);
 
   // ---------- Réglages : thème, couleur, langue ----------
   const ACCENTS = {
@@ -31,7 +36,7 @@
   };
   const LANGS = Object.keys(window.I18N);
   const autoLang = () => { const l = (navigator.language || "fr").slice(0, 2); return LANGS.includes(l) ? l : "fr"; };
-  let settings = { theme: "auto", accent: "aurora", lang: null, ...store.get("settings", {}) };
+  let settings = { theme: "auto", accent: "aurora", lang: null, translate: true, est: { fee: 5, perKg: 10, base: 15 }, ...store.get("settings", {}) };
   const lang = () => settings.lang || autoLang();
   const t = (k, vars = {}) => {
     const s = window.I18N[lang()]?.[k] ?? window.I18N.fr[k] ?? k;
@@ -68,6 +73,8 @@
     gear: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`,
     chevron: `<svg width="8" height="14" viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m1 1 6 6-6 6"/></svg>`,
     arrowUp: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>`,
+    heart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M12 20.5s-7.5-4.6-9.2-9.3C1.6 7.8 3.8 4.5 7.2 4.5c2 0 3.6 1.1 4.8 2.8 1.2-1.7 2.8-2.8 4.8-2.8 3.4 0 5.6 3.3 4.4 6.7C19.5 15.9 12 20.5 12 20.5z"/></svg>`,
+    bell: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>`,
     check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>`,
   };
   const field = (attrs) => `<label class="field">${ICON.search}<input ${attrs}></label>`;
@@ -85,15 +92,92 @@
     catch { prompt(t("copyThisLink"), text); }
   }
 
+  // ---------- Prix (extraits des titres, convertis en euros) ----------
+  let rate = store.get("rate", { v: 0.13, t: 0 });
+  function refreshRate() {
+    if (Date.now() - rate.t < 12 * 3600e3) return;
+    api("rate", {}).then((d) => { rate = { v: d.eurPerCny, usd: d.eurPerUsd, t: Date.now() }; store.set("rate", rate); }).catch(() => {});
+  }
+  function priceEur(title) {
+    const str = String(title || "");
+    let m = str.match(/€\s?(\d{1,4}(?:[.,]\d{1,2})?)|(\d{1,4}(?:[.,]\d{1,2})?)\s?(?:€|eur\b)/i);
+    if (m) return parseFloat((m[1] || m[2]).replace(",", "."));
+    const cny = (v) => (v >= 5 && v <= 30000 ? v * rate.v : null);
+    // d'abord « ¥ 255 » / « ￥~598 », puis « 255¥ », « 280CNY », « 170Y »
+    if ((m = str.match(/[¥￥]\s?~?\s?(\d{1,5}(?:\.\d{1,2})?)/))) return cny(parseFloat(m[1]));
+    if ((m = str.match(/(\d{1,5}(?:\.\d{1,2})?)\s?(?:[¥￥元]|Y(?![a-z])|yuan|rmb|cny)/i))) return cny(parseFloat(m[1]));
+    if ((m = str.match(/\$\s?(\d{1,4}(?:\.\d{1,2})?)|(\d{1,4}(?:\.\d{1,2})?)\s?\$|(\d{1,4})\s?usd\b/i))) return parseFloat(m[1] || m[2] || m[3]) * (rate.usd || 0.92);
+    if ((m = str.match(/(?:^|\s|【|\[)P(\d{2,4})[A-Z]?(?=\s|\(|（|-|$)/))) return cny(parseFloat(m[1]));
+    return null;
+  }
+
+  const money = (v) => (v == null ? "" : new Intl.NumberFormat(lang(), { style: "currency", currency: "EUR", maximumFractionDigits: v < 20 ? 1 : 0 }).format(v));
+
+  // ---------- Traduction des mots chinois des titres ----------
+  const ZH_KEYS = Object.keys(window.ZH || {}).sort((a, b) => b.length - a.length);
+  const ZH_RE = ZH_KEYS.length ? new RegExp(ZH_KEYS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g") : null;
+  function trTitle(str) {
+    str = String(str || "");
+    if (!settings.translate || !ZH_RE || !/[一-鿿]/.test(str)) return str;
+    const li = { fr: 0, en: 1, es: 2 }[lang()] ?? 0;
+    return str.replace(ZH_RE, (w) => " " + window.ZH[w][li] + " ").replace(/\s+/g, " ").trim();
+  }
+
+  // ---------- Liste d'envies + panier « à commander » ----------
+  let wish = store.get("wish", []); // [{ s, id, title, cover, count, note, cart, opened, cat, t }]
+  const cardData = new Map(); // dernières infos d'album affichées (pour ajouter aux envies)
+  const isWished = (s, id) => wish.some((w) => w.s === s && w.id === String(id));
+  const saveWish = () => { store.set("wish", wish); renderTabs(); };
+  const CATS = { shoes: 1.6, jacket: 1.3, hoodie: 0.8, pants: 0.6, tee: 0.3, bag: 1.0, acc: 0.25 };
+  const CAT_KEY = { shoes: "catShoes", jacket: "catJacket", hoodie: "catHoodie", pants: "catPants", tee: "catTee", bag: "catBag", acc: "catAcc" };
+  function guessCat(title) {
+    const x = String(title || "").toLowerCase();
+    if (/shoe|sneaker|jordan|\baj ?\d|dunk|yeezy|af1|air force|air max|new balance|\bnb ?\d|boot|slide|trainer|鞋|靴|拖鞋/.test(x)) return "shoes";
+    if (/jacket|coat|parka|puffer|down|vest|windbreaker|外套|夹克|羽绒|马甲|风衣|棉服/.test(x)) return "jacket";
+    if (/hoodie|sweat|sweater|knit|cardigan|crewneck|卫衣|毛衣|针织|开衫/.test(x)) return "hoodie";
+    if (/pant|jean|short|trouser|jogger|裤/.test(x)) return "pants";
+    if (/bag|backpack|wallet|tote|包/.test(x)) return "bag";
+    if (/\bcap\b|hat|beanie|belt|sock|scarf|ring|necklace|bracelet|watch|glasses|帽|袜|带|链|镜|戒/.test(x)) return "acc";
+    return "tee";
+  }
+  function toggleWish(s, a) {
+    if (isWished(s, a.id)) {
+      wish = wish.filter((w) => !(w.s === s && w.id === String(a.id)));
+      saveWish(); toast(t("removedWish")); return false;
+    }
+    wish.unshift({ s, id: String(a.id), title: a.title || "", cover: a.cover || "", count: a.count || null, note: "", cart: false, opened: false, cat: guessCat(a.title), t: Date.now() });
+    saveWish(); toast(t("addedWish")); return true;
+  }
+  // cœur sur les cartes : un seul écouteur pour toute l'appli
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-wish]");
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const [s, id] = b.dataset.wish.split("|");
+    const on = toggleWish(s, cardData.get(`${s}:${id}`) || { id });
+    document.querySelectorAll(`[data-wish="${CSS.escape(b.dataset.wish)}"]`).forEach((x) => { x.classList.toggle("on", on); x.classList.remove("bump"); void x.offsetWidth; x.classList.add("bump"); });
+  }, true);
+
   const sleep = (ms, signal) => new Promise((ok, ko) => {
     const tm = setTimeout(ok, ms);
     signal?.addEventListener("abort", () => { clearTimeout(tm); ko(new DOMException("abort", "AbortError")); });
   });
 
   // Yupoo freine (erreur 429) si on va trop vite : on attend un peu et on réessaie
-  async function api(path, params, signal) {
+  async function api(path, params, signal, timeoutMs = 0) {
     for (let attempt = 0; ; attempt++) {
-      const res = await fetch(`/api/${path}?${new URLSearchParams(params)}`, { signal });
+      let sig = signal, tm;
+      if (timeoutMs) {
+        // délai max par vendeur : un vendeur lent ne bloque plus toute la recherche
+        const c = new AbortController();
+        signal?.addEventListener("abort", () => c.abort());
+        tm = setTimeout(() => c.abort(new DOMException("timeout", "TimeoutError")), timeoutMs);
+        sig = c.signal;
+      }
+      let res;
+      try { res = await fetch(`/api/${path}?${new URLSearchParams(params)}`, { signal: sig }); }
+      catch (e) { if (signal?.aborted) throw e; if (e.name === "AbortError" || e.name === "TimeoutError") throw new Error("timeout"); throw e; }
+      finally { clearTimeout(tm); }
       if (res.status === 429 && attempt < 4) { await sleep(1500 * 2 ** attempt + Math.random() * 1000, signal); continue; }
       const data = await res.json().catch(() => ({ error: "Erreur" }));
       if (!res.ok || data.error) throw new Error(data.error || `Erreur ${res.status}`);
@@ -110,12 +194,17 @@
     document.title = title + " · Yupoo Finder";
   }
 
-  function itemCard(a, s, showStore, score) {
+  function itemCard(a, s, showStore, score, badge) {
+    cardData.set(`${s}:${a.id}`, a);
+    const pr = priceEur(a.title);
     return `<a class="item" href="#/s/${esc(s)}/a/${esc(a.id)}">
       <div class="im">${a.cover ? `<img loading="lazy" src="${img(a.cover)}" alt="" onload="this.classList.add('ld')">` : ""}
         ${score != null ? `<span class="score">${Math.round(score * 100)}%</span>` : ""}
+        ${badge ? `<span class="deal">${esc(badge)}</span>` : ""}
+        <button class="heart ${isWished(s, a.id) ? "on" : ""}" data-wish="${esc(s)}|${esc(a.id)}" aria-label="♡">${ICON.heart}</button>
+        ${pr != null ? `<span class="price">${esc(money(pr))}</span>` : ""}
         ${a.count ? `<span class="cnt">${a.count} 📷</span>` : ""}</div>
-      <div class="tt">${esc(a.title || t("untitled"))}</div>
+      <div class="tt">${esc(trTitle(a.title) || t("untitled"))}</div>
       ${showStore ? `<div class="st">${esc(s)}</div>` : ""}
     </a>`;
   }
@@ -132,11 +221,12 @@
   const newCtrl = () => { if (ctrl) ctrl.abort(); ctrl = new AbortController(); return ctrl.signal; };
 
   // ---------- Barre d'onglets ----------
-  const TABS = [["stores", "#/", "grid", "tabStores"], ["search", "#/search", "search", "tabSearch"], ["photo", "#/photo", "cam", "tabPhoto"], ["settings", "#/settings", "gear", "tabSettings"]];
+  const TABS = [["stores", "#/", "grid", "tabStores"], ["search", "#/search", "search", "tabSearch"], ["photo", "#/photo", "cam", "tabPhoto"], ["wish", "#/wishlist", "heart", "tabWish"], ["settings", "#/settings", "gear", "tabSettings"]];
+  const tabBadge = (id) => (id === "wish" ? wish.filter((w) => w.cart).length : id === "search" ? alertNewTotal() : 0);
   let currentTab = "stores";
   function renderTabs() {
     const nav = $("#tabs");
-    nav.innerHTML = `<i class="pill"></i>` + TABS.map(([id, href, ic, key]) => `<a href="${href}" data-tab="${id}" class="${id === currentTab ? "on" : ""}">${ICON[ic]}<span>${esc(t(key))}</span></a>`).join("");
+    nav.innerHTML = `<i class="pill"></i>` + TABS.map(([id, href, ic, key]) => { const n = tabBadge(id); return `<a href="${href}" data-tab="${id}" class="${id === currentTab ? "on" : ""}">${ICON[ic]}<span>${esc(t(key))}</span>${n ? `<b class="tb-badge">${n}</b>` : ""}</a>`; }).join("");
     nav.style.setProperty("--tab", TABS.findIndex(([id]) => id === currentTab));
   }
   function setTab(id) {
@@ -160,7 +250,7 @@
     const n = pv ? pv.pages * 120 : 0;
     const sub = pv ? (pv.pages > 1 ? t("albumsCount", { n: n > 999 ? Math.round(n / 100) / 10 + " k" : n }) : t("catalog")) : status[s] === "bad" ? t("notFound") : "Yupoo";
     return `<a class="store ${status[s] === "bad" ? "bad" : ""}" href="#/s/${esc(s)}" data-name="${esc(s)}">
-      ${mosaic}${favs.has(s) ? `<span class="star">★</span>` : ""}
+      ${mosaic}${favs.has(s) ? `<span class="star">★</span>` : ""}${snotes[s]?.r ? `<span class="rate r-${snotes[s].r}">${{ good: "👍", mid: "😐", bad: "⚠️" }[snotes[s].r]}</span>` : ""}
       <div class="info"><i class="logo"></i><div class="nm">${esc(s)}</div><div class="sub">${sub}</div></div>
     </a>`;
   }
@@ -177,6 +267,7 @@
         <span><b>${esc(t("searchEverywhere"))}</b><span>${esc(t("searchEverywhereSub"))}</span></span>
         <span class="arrow">${ICON.chevron}</span>
       </a>
+      ${alertNewTotal() ? `<a class="news-row" href="#/alerts"><span class="ag-ic">${ICON.bell}</span><span><b>${esc(t("newsTitle"))}</b><small>${alerts.filter((x) => x.fresh?.length).map((x) => `${esc(x.q)} · ${esc(t("newCount", { n: x.fresh.length }))}`).join(" — ")}</small></span>${ICON.chevron}</a>` : ""}
       <a class="agent-row" href="#/agent"><span class="ag-ic">🛒</span><span><b>${esc(t("myAgent"))}</b><small>${agent ? esc(agent.name) + " · " + t(Object.keys(agent.templates || {}).length ? "directOpen" : "linkCopy") : t("notConfigured")}</small></span>${ICON.chevron}</a>
       ${fl.length ? `<div class="section-title">${esc(t("favorites"))}</div>
         <div class="favs">${fl.map((s) => {
@@ -222,9 +313,20 @@
     };
     view.innerHTML = `
       ${bigTitle(s, `<a href="${yupoo(s)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(s)}.x.yupoo.com ↗</a>`)}
+      <div class="panel snote">
+        <div class="snote-h">${esc(t("sellerNote"))}</div>
+        <div class="chips wrap" style="margin:8px 0 8px">${["good", "mid", "bad"].map((r) => `<button class="chip ${snotes[s]?.r === r ? "on" : ""}" data-rate="${r}">${esc(t({ good: "rGood", mid: "rMid", bad: "rBad" }[r]))}</button>`).join("")}</div>
+        <label class="field"><input id="snoteIn" placeholder="${esc(t("sellerNotePh"))}" value="${esc(snotes[s]?.note || "")}"></label>
+      </div>
       <form class="searchbar" id="sf">${field(`id="sq" type="search" placeholder="${esc(t("searchAt", { s }))}" autocomplete="off" enterkeyhint="search"`)}</form>
       <div id="list" class="grid stagger"></div><div id="more"></div>
       <a class="btn ghost block" href="${yupoo(s)}" target="_blank" rel="noopener">${esc(t("openYupoo"))} ↗</a>`;
+    view.querySelectorAll("[data-rate]").forEach((b) => (b.onclick = () => {
+      const r = snotes[s]?.r === b.dataset.rate ? null : b.dataset.rate;
+      snotes[s] = { ...(snotes[s] || {}), r }; store.set("snotes", snotes);
+      view.querySelectorAll("[data-rate]").forEach((x) => x.classList.toggle("on", x.dataset.rate === r));
+    }));
+    $("#snoteIn").onchange = (e) => { snotes[s] = { ...(snotes[s] || {}), note: e.target.value.trim() }; store.set("snotes", snotes); };
     const signal = newCtrl();
     const list = $("#list"), more = $("#more");
     let pageNo = 1, pages = 1, q = "", loading = false;
@@ -391,17 +493,25 @@
 
   // ---------- Écran : un album ----------
   async function viewAlbum(s, id) {
-    header(s, { back: true });
+    header(s, { back: true, right: `<button id="wishBtn" class="ic heart-top ${isWished(s, id) ? "on" : ""}">${ICON.heart}</button>` });
     view.innerHTML = `<div class="photos sk">${"<i></i>".repeat(9)}</div><div class="panel sk-panel"><i></i><i></i><i></i></div>`;
     const signal = newCtrl();
     try {
       const a = await api("album", { s, id }, signal);
+      const cover = cardData.get(`${s}:${id}`)?.cover || a.photos[0]?.thumb || "";
+      $("#wishBtn").onclick = () => {
+        const on = toggleWish(s, { id, title: a.title, cover, count: a.photos.length });
+        $("#wishBtn").classList.toggle("on", on); $("#wishBtn").classList.remove("bump"); void $("#wishBtn").offsetWidth; $("#wishBtn").classList.add("bump");
+      };
+      const myPrice = priceEur(a.title);
       const firstPhoto = a.photos[0]?.full;
       const lensUrl = firstPhoto ? `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(location.origin + img(firstPhoto))}` : null;
       view.innerHTML = `
         <div class="photos fade-in">${a.photos.map((p, i) => `<img loading="lazy" src="${img(p.thumb)}" data-i="${i}" alt="" onload="this.classList.add('ld')">`).join("")}</div>
         <div class="panel rise">
-          <h3>${esc(a.title || "Album")}</h3>
+          ${myPrice != null ? `<div class="big-price">${esc(money(myPrice))}</div>` : ""}
+          <h3>${esc(trTitle(a.title) || "Album")}</h3>
+          ${trTitle(a.title) !== a.title ? `<div class="muted orig">${esc(t("original"))} : ${esc(a.title)}</div>` : ""}
           <div class="muted">${esc(t("photos", { n: a.photos.length }))} · <a href="#/s/${esc(s)}" style="color:var(--accent)">${esc(s)}</a></div>
           <div class="row" style="margin-top:14px">
             <a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(t("openYupoo"))}</a>
@@ -418,7 +528,7 @@
             ${lensUrl ? `<a class="btn small ghost" href="${esc(lensUrl)}" target="_blank" rel="noopener">Google Lens</a>` : ""}
           </div>
         </div>`;
-      $("#simBtn").onclick = () => similarForAlbum(s, id, a.photos[0]?.thumb, $("#similar"));
+      $("#simBtn").onclick = () => similarForAlbum(s, id, a.photos[0]?.thumb, $("#similar"), myPrice);
       bindBuy(a);
       $("#cp").onclick = () => copy(a.url);
       $("#same").onclick = () => { location.hash = `#/search?q=${encodeURIComponent(keywords(a.title))}`; };
@@ -498,6 +608,7 @@
       }
     });
     sx.docs = docs;
+    sx.keyIndex = new Map(meta.items.map((it, i) => [`${meta.stores[it[0]]}:${it[1]}`, i]));
     sx.phrases = [...counts].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]);
     sx.words = sx.phrases.filter(([p]) => !p.includes(" ")).map(([p]) => p);
   }
@@ -623,8 +734,12 @@
   }
 
   function showSearchEmpty() {
-    $("#out").innerHTML = `<div class="empty-state fade-in"><div class="big">🔎</div><b>${esc(t("searchEmptyT"))}</b>${esc(t("searchEmptyS"))}</div>
+    $("#out").innerHTML = `${hist.length ? `<div class="section-title">${esc(t("recent"))} <button class="link-btn" id="histClear">${esc(t("clear"))}</button></div>
+      <div class="chips wrap">${hist.map((h) => `<a class="chip hist" href="#/search?q=${encodeURIComponent(h)}">🕘 ${esc(h)}</a>`).join("")}</div>` : ""}
+      <div class="empty-state fade-in"><div class="big">🔎</div><b>${esc(t("searchEmptyT"))}</b>${esc(t("searchEmptyS"))}</div>
       <div class="chips wrap center-chips">${["jordan 4", "hoodie", "air force 1", "stussy", "chrome hearts", "jersey"].map((w) => `<a class="chip" href="#/search?q=${encodeURIComponent(w)}">${w}</a>`).join("")}</div>`;
+    const hc = $("#histClear");
+    if (hc) hc.onclick = () => { hist = []; store.set("hist", hist); showSearchEmpty(); };
   }
 
   function startLive(q) {
@@ -632,6 +747,7 @@
     $("#q").blur();
     $("#sugg").innerHTML = "";
     history.replaceState(null, "", `#/search?q=${encodeURIComponent(q)}`);
+    hist = [q, ...hist.filter((h) => h.toLowerCase() !== q.toLowerCase())].slice(0, 12); store.set("hist", hist);
     runSearch(q);
   }
 
@@ -664,15 +780,26 @@
     if (lb) lb.onclick = () => startLive(lb.dataset.live);
   }
 
+  const LIVE_TTL = 30 * 60 * 1000;
   async function runSearch(q) {
     const signal = newCtrl();
-    lastSearch = { q, results: [], errors: [], done: 0, filter: null, extra: [], extraState: "loading" };
+    const ck = "ls:" + q.toLowerCase();
+    try {
+      const c = JSON.parse(sessionStorage.getItem(ck) || "null");
+      if (c && Date.now() - c.t < LIVE_TTL && c.n === stores.length) {
+        lastSearch = { ...c.data, q, filter: null, sort: "rel", cached: true };
+        renderResults();
+        return;
+      }
+    } catch {}
+    lastSearch = { q, results: [], errors: [], done: 0, filter: null, extra: [], extraState: "loading", sort: "rel" };
     renderResults();
     const discovering = discoverOthers(q, signal); // en parallèle : autres vendeurs Yupoo
-    await pool(stores, 4, async (s) => {
+    const order = [...stores].sort((a, b) => favs.has(b) - favs.has(a)); // favoris d'abord
+    await pool(order, 6, async (s) => {
       if (signal.aborted) return;
       try {
-        const d = await api("search", { s, q }, signal);
+        const d = await api("search", { s, q }, signal, 12000);
         setStatus(s, "ok");
         if (d.albums.length) lastSearch.results.push({ s, albums: d.albums, pages: d.pages });
       } catch (e) {
@@ -683,6 +810,9 @@
       if (lastSearch.q === q && !signal.aborted) renderResults();
     });
     await discovering;
+    if (!signal.aborted && lastSearch.q === q) {
+      try { const { results, errors, done, extra, extraState } = lastSearch; sessionStorage.setItem(ck, JSON.stringify({ t: Date.now(), n: stores.length, data: { results, errors, done, extra, extraState } })); } catch {}
+    }
   }
 
   // Vendeurs Yupoo qui ne sont pas dans ta liste, trouvés via un moteur de recherche
@@ -713,12 +843,22 @@
     const finished = done >= stores.length;
     const shown = results.filter((r) => !filter || r.s === filter);
     // mélange : 1 album de chaque vendeur à tour de rôle, pour ne pas tout avoir du même
-    const mixed = [];
+    let mixed = [];
     for (let i = 0; shown.some((r) => i < r.albums.length); i++) shown.forEach((r) => r.albums[i] && mixed.push([r.albums[i], r.s]));
+    const sort = lastSearch.sort || "rel";
+    if (sort !== "rel") {
+      const pv = (x) => priceEur(x[0].title);
+      mixed = mixed.filter((x) => pv(x) != null).sort((a, b) => (sort === "asc" ? pv(a) - pv(b) : pv(b) - pv(a))).concat(mixed.filter((x) => pv(x) == null));
+    }
+    const hasAlert = alerts.some((a) => a.q.toLowerCase() === lastSearch.q.toLowerCase());
     out.innerHTML = `
       ${finished ? "" : `<div class="progress"><i style="width:${(done / stores.length) * 100}%"></i></div>`}
       <p class="muted" style="margin:0 4px 10px">${finished ? "" : esc(t("searching", { d: done, n: stores.length }))}${t("albumsAt", { t: total, n: results.length })}
-        ${finished && errors.length ? `<br><span class="err">${esc(t("noReply", { n: errors.length }))}</span>` : ""}</p>
+        ${finished && errors.length ? `<br><span class="err">${esc(t("noReply", { n: errors.length }))}</span>` : ""}${lastSearch.cached ? ` · <span>${esc(t("cached"))}</span>` : ""}</p>
+      <div class="tools-row">
+        <div class="seg mini" style="--n:3;--i:${["rel", "asc", "desc"].indexOf(sort)}"><i class="seg-pill"></i>${[["rel", "sortRel"], ["asc", "sortAsc"], ["desc", "sortDesc"]].map(([k, l]) => `<button class="seg-b ${sort === k ? "on" : ""}" data-sort="${k}">${esc(t(l))}</button>`).join("")}</div>
+        <button class="alert-btn ${hasAlert ? "on" : ""}" id="alertBtn" ${hasAlert ? "disabled" : ""}>${ICON.bell}<span>${esc(t(hasAlert ? "alertOn" : "alertBtn").replace("🔔 ", ""))}</span></button>
+      </div>
       ${results.length > 1 ? `<div class="chips">
         <button class="chip ${filter ? "" : "on"}" data-f="">${esc(t("all"))}</button>
         ${results.slice().sort((a, b) => b.albums.length - a.albums.length).map((r) => `<button class="chip ${filter === r.s ? "on" : ""}" data-f="${esc(r.s)}">${esc(r.s)} · ${r.albums.length}${r.pages > 1 ? "+" : ""}</button>`).join("")}
@@ -729,6 +869,9 @@
       ${finished && !total ? `<div class="empty-state"><div class="big">🤷</div><b>${esc(t("nothingT"))}</b>${esc(t("nothingS"))}</div>` : ""}
       ${filter ? "" : renderExtra()}`;
     out.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { lastSearch.filter = c.dataset.f || null; renderResults(); }));
+    out.querySelectorAll("[data-sort]").forEach((b) => (b.onclick = () => { lastSearch.sort = b.dataset.sort; renderResults(); }));
+    const ab = $("#alertBtn");
+    if (ab && !hasAlert) ab.onclick = () => addAlert(lastSearch.q);
     out.querySelectorAll("[data-addstore]").forEach((b) => (b.onclick = (e) => {
       e.preventDefault();
       const st = b.dataset.addstore;
@@ -813,15 +956,24 @@
     return out;
   }
 
-  function renderMatches(el, res) {
+  function renderMatches(el, res, refPrice = null) {
     const n = new Set(res.map((r) => r.s)).size;
+    // « Moins cher » : le moins cher parmi les très ressemblants (score ≥ 0,8)
+    const close = res.filter((r) => r.score >= 0.8 && priceEur(r.a.title) != null);
+    const cheapest = close.length ? close.reduce((m, r) => (priceEur(r.a.title) < priceEur(m.a.title) ? r : m)) : null;
     el.innerHTML = `<p class="muted">${esc(t("similarCount", { n: res.length, s: n }))}</p>
-      <div class="grid stagger">${res.map((r) => itemCard(r.a, r.s, true, r.score)).join("")}</div>`;
+      <div class="grid stagger">${res.map((r) => {
+        const p = priceEur(r.a.title);
+        let badge = null;
+        if (r === cheapest) badge = t("cheapest");
+        else if (refPrice != null && p != null && r.score >= 0.8 && refPrice - p >= 1) badge = t("cheaperBy", { p: money(refPrice - p) });
+        return itemCard(r.a, r.s, true, r.score, badge);
+      }).join("")}</div>`;
   }
 
   const statusHtml = (msg) => `<div class="spinner"></div><p class="center muted" style="padding-top:0">${esc(msg)}</p>`;
 
-  async function similarForAlbum(s, id, thumb, el) {
+  async function similarForAlbum(s, id, thumb, el, refPrice = null) {
     const st = (m) => (el.innerHTML = statusHtml(m));
     try {
       await loadIndex(st);
@@ -835,7 +987,7 @@
         st(t("analysing"));
         q = await embedBlob(await (await fetch(img(thumb))).blob());
       }
-      renderMatches(el, nearest(q, { excludeStore: s, limit: 30, perStore: 4 }));
+      renderMatches(el, nearest(q, { excludeStore: s, limit: 30, perStore: 4 }), refPrice);
     } catch (e) {
       el.innerHTML = `<p class="err">${esc(e.message)}</p>`;
     }
@@ -867,10 +1019,14 @@
         <div class="muted" style="line-height:1.45">${t("howText")}</div>
       </div>`;
     const file = $("#file");
-    file.onchange = async () => {
-      const f = file.files[0];
-      if (!f) return;
-      const url = URL.createObjectURL(f);
+    file.onchange = () => {
+      const f0 = file.files[0];
+      if (!f0) return;
+      $("#howto").hidden = true;
+      $("#ident").innerHTML = ""; $("#results").innerHTML = "";
+      cropper(f0, (f, url) => runPhotoSearch(f, url));
+    };
+    const runPhotoSearch = async (f, url) => {
       $("#prev").innerHTML = `<img src="${url}" alt="" class="pop"><div class="muted" style="margin-top:8px">${esc(t("changePhoto"))}</div>`;
       $("#drop").classList.add("has");
       $("#actions").hidden = false;
@@ -1028,6 +1184,204 @@
     };
   }
 
+  // ---------- Alertes nouveautés (vérifiées sur l'index mis à jour chaque nuit) ----------
+  function matchKeys(qRaw) {
+    const q = norm(qRaw);
+    if (q.length < 2 || !sx.docs) return [];
+    const base = q.split(" ");
+    const variants = [base];
+    if (ALIASES[base[0]]) variants.push([...ALIASES[base[0]].split(" "), ...base.slice(1)]);
+    const meta = sx.meta, out = [];
+    for (let i = 0; i < sx.docs.length; i++) {
+      const d = sx.docs[i];
+      if (variants.some((toks) => toks.every((tk, k) => d.includes(" " + tk + " ") || (k === toks.length - 1 && d.includes(" " + tk))))) {
+        out.push(`${meta.stores[meta.items[i][0]]}:${meta.items[i][1]}`);
+      }
+    }
+    return out;
+  }
+  async function addAlert(q) {
+    await buildSearchIndex().catch(() => {});
+    if (alerts.some((a) => a.q.toLowerCase() === q.toLowerCase())) return;
+    alerts.push({ q, seen: matchKeys(q), t: Date.now(), fresh: [] });
+    saveAlerts(); toast(t("alertAdded", { q }));
+    if (currentRoute === "search") renderResults();
+  }
+  async function checkAlerts() {
+    if (!alerts.length) return;
+    await buildSearchIndex();
+    for (const a of alerts) { const seen = new Set(a.seen); a.fresh = matchKeys(a.q).filter((k) => !seen.has(k)); }
+    const n = alertNewTotal();
+    try { n ? navigator.setAppBadge?.(n) : navigator.clearAppBadge?.(); } catch {}
+    renderTabs(); setTab(currentTab);
+    if (currentRoute === "stores" && n) viewStores();
+  }
+  function albumFromKey(key) {
+    const i = ps.index?.byKey?.get(key) ?? sx.keyIndex?.get(key);
+    if (i == null) return null;
+    const it = sx.meta.items[i];
+    return { s: sx.meta.stores[it[0]], a: { id: it[1], title: it[2], cover: "https://photo.yupoo.com/" + it[3], count: it[4] } };
+  }
+
+  function viewAlerts() {
+    header(t("alertsTitle"), { back: true });
+    view.innerHTML = `${bigTitle(t("alertsTitle"), esc(t("alertsSub")))}
+      ${alerts.length ? `<div class="list">${alerts.map((a, i) => `<a class="row-item" href="#/alert/${i}"><span class="ri-ic" style="background:var(--grad);color:#fff">${ICON.bell}</span><span>${esc(a.q)}<small>${a.fresh?.length ? esc(t("newCount", { n: a.fresh.length })) : esc(t("noNew"))}</small></span>${a.fresh?.length ? `<b class="cnt-badge">${a.fresh.length}</b>` : ""}${ICON.chevron}</a>`).join("")}</div>`
+        : `<div class="empty-state"><div class="big">🔔</div>${esc(t("alertsEmpty"))}</div>`}`;
+  }
+  function viewAlert(i) {
+    const a = alerts[+i];
+    if (!a) { location.hash = "#/alerts"; return; }
+    header(a.q, { back: true });
+    const items = (a.fresh || []).map(albumFromKey).filter(Boolean);
+    view.innerHTML = `${bigTitle(a.q, esc(t("alertNew", { q: a.q })))}
+      ${items.length ? `<div class="grid stagger">${items.slice(0, 120).map((r) => itemCard(r.a, r.s, true)).join("")}</div>` : `<div class="empty-state"><div class="big">✨</div>${esc(t("noNew"))}</div>`}
+      <div class="row" style="margin-top:14px">
+        ${items.length ? `<button class="btn" id="seenBtn">${esc(t("markSeen"))}</button>` : ""}
+        <a class="btn ghost" href="#/search?q=${encodeURIComponent(a.q)}">${esc(t("searchTitle"))}</a>
+      </div>
+      <button class="btn ghost block" id="delAlert" style="color:var(--err)">${esc(t("removeAlert"))}</button>`;
+    const sb = $("#seenBtn");
+    if (sb) sb.onclick = () => { a.seen = [...new Set([...a.seen, ...a.fresh])]; a.fresh = []; saveAlerts(); checkAlerts(); history.back(); };
+    $("#delAlert").onclick = () => { alerts.splice(+i, 1); saveAlerts(); checkAlerts(); location.hash = "#/alerts"; };
+  }
+
+  // ---------- Écran : envies et panier « à commander » ----------
+  let wishSeg = "wish";
+  function viewWishlist() {
+    header(t("wishTitle"), { large: true });
+    const cart = wish.filter((w) => w.cart);
+    view.innerHTML = `${bigTitle(t("wishTitle"), esc(t("wishSub", { n: wish.length })))}
+      <div class="seg" style="--n:2;--i:${wishSeg === "wish" ? 0 : 1};margin-bottom:14px"><i class="seg-pill"></i>
+        <button class="seg-b ${wishSeg === "wish" ? "on" : ""}" data-seg="wish">${esc(t("segWish"))} · ${wish.length}</button>
+        <button class="seg-b ${wishSeg === "cart" ? "on" : ""}" data-seg="cart">${esc(t("segCart"))} · ${cart.length}</button>
+      </div>
+      <div id="wbody"></div>`;
+    view.querySelectorAll("[data-seg]").forEach((b) => (b.onclick = () => { wishSeg = b.dataset.seg; viewWishlist(); }));
+    const body = $("#wbody");
+    if (wishSeg === "wish") {
+      if (!wish.length) { body.innerHTML = `<div class="empty-state"><div class="big">💜</div><b>${esc(t("wishEmptyT"))}</b>${esc(t("wishEmptyS"))}</div>`; return; }
+      body.innerHTML = `<div class="list">${wish.map((w, i) => {
+        const pr = priceEur(w.title);
+        return `<div class="wrow rise" style="animation-delay:${Math.min(i, 8) * 30}ms">
+          <a href="#/s/${esc(w.s)}/a/${esc(w.id)}" class="wimg" style="background-image:url('${img(w.cover)}')"></a>
+          <div class="winfo"><a href="#/s/${esc(w.s)}/a/${esc(w.id)}"><b>${esc(trTitle(w.title) || t("untitled"))}</b></a>
+            <small>${esc(w.s)}${pr != null ? ` · <span class="pp">${esc(money(pr))}</span>` : ""}</small>
+            <button class="wnote" data-note="${i}">${w.note ? "📝 " + esc(w.note) : "＋ " + esc(t("addNote"))}</button>
+            <div class="wact"><button class="chip ${w.cart ? "on" : ""}" data-cart="${i}">${esc(t(w.cart ? "inCart" : "toCart"))}</button><button class="wdel" data-del="${i}" aria-label="✕">✕</button></div>
+          </div></div>`;
+      }).join("")}</div>`;
+      body.querySelectorAll("[data-note]").forEach((b) => (b.onclick = () => { const w = wish[+b.dataset.note]; const n = prompt(t("noteQ"), w.note || ""); if (n != null) { w.note = n.trim(); saveWish(); viewWishlist(); } }));
+      body.querySelectorAll("[data-cart]").forEach((b) => (b.onclick = () => { const w = wish[+b.dataset.cart]; w.cart = !w.cart; w.opened = false; saveWish(); viewWishlist(); }));
+      body.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => { if (confirm(t("removeWishQ"))) { wish.splice(+b.dataset.del, 1); saveWish(); viewWishlist(); } }));
+      return;
+    }
+    // --- panier « à commander » + estimation du coût total
+    if (!cart.length) { body.innerHTML = `<div class="empty-state"><div class="big">🛒</div><b>${esc(t("cartEmptyT"))}</b>${esc(t("cartEmptyS"))}</div>`; return; }
+    const est = settings.est;
+    const prices = cart.map((w) => priceEur(w.title));
+    const sum = prices.reduce((n, p) => n + (p || 0), 0);
+    const fee = sum * (est.fee / 100);
+    const domestic = cart.length * 10 * rate.v; // ≈ 10 ¥ de livraison en Chine par article
+    const weight = cart.reduce((n, w) => n + (CATS[w.cat] || 0.5), 0);
+    const ship = est.base + weight * est.perKg;
+    const unknown = prices.filter((p) => p == null).length;
+    body.innerHTML = `
+      ${agent ? "" : `<a class="panel hint-row" href="#/agent">🛒 ${esc(t("noAgentYet"))} ${ICON.chevron}</a>`}
+      <div class="list">${cart.map((w, i) => {
+        const pr = prices[i];
+        return `<div class="wrow">
+          <a href="#/s/${esc(w.s)}/a/${esc(w.id)}" class="wimg" style="background-image:url('${img(w.cover)}')"></a>
+          <div class="winfo"><b>${esc(trTitle(w.title) || t("untitled"))}</b>
+            <small>${esc(w.s)} · ${pr != null ? `<span class="pp">${esc(money(pr))}</span>` : esc(t("priceUnknown"))}</small>
+            <select class="cat-sel" data-cat="${i}">${Object.keys(CATS).map((c) => `<option value="${c}" ${w.cat === c ? "selected" : ""}>${esc(t(CAT_KEY[c]))} · ${CATS[c]} kg</option>`).join("")}</select>
+            <div class="wact">${agent ? `<button class="btn small ${w.opened ? "ghost" : "grad"}" data-open="${i}">${esc(w.opened ? t("opened") : t("openNext", { a: agent.name }))}</button>` : ""}
+              <button class="chip" data-uncart="${i}">✕</button></div>
+          </div></div>`;
+      }).join("")}</div>
+      <div class="panel est rise">
+        <h2>${esc(t("estimate"))}</h2>
+        <div class="facts">
+          <div class="fact"><span>${esc(t("estItems", { n: cart.length }))}${unknown ? ` (${unknown} ${esc(t("priceUnknown"))})` : ""}</span><b>${esc(money(sum))}</b></div>
+          <div class="fact"><span>${esc(t("estFee", { p: est.fee }))}</span><b>${esc(money(fee))}</b></div>
+          <div class="fact"><span>${esc(t("estDomestic"))}</span><b>${esc(money(domestic))}</b></div>
+          <div class="fact"><span>${esc(t("estShip", { w: weight.toFixed(1) }))}</span><b>${esc(money(ship))}</b></div>
+          <div class="fact total"><span>${esc(t("estTotal"))}</span><b>${esc(money(sum + fee + domestic + ship))}</b></div>
+        </div>
+        <p class="muted" style="margin:10px 0 0;font-size:12.5px">${esc(t("estNote"))}</p>
+        <details class="est-set"><summary>${esc(t("estSettings"))}</summary>
+          <label>${esc(t("feePct"))}<input type="number" inputmode="decimal" data-est="fee" value="${est.fee}"></label>
+          <label>${esc(t("perKg"))}<input type="number" inputmode="decimal" data-est="perKg" value="${est.perKg}"></label>
+          <label>${esc(t("baseShip"))}<input type="number" inputmode="decimal" data-est="base" value="${est.base}"></label>
+        </details>
+      </div>`;
+    body.querySelectorAll("[data-cat]").forEach((sel) => (sel.onchange = () => { cart[+sel.dataset.cat].cat = sel.value; saveWish(); viewWishlist(); }));
+    body.querySelectorAll("[data-uncart]").forEach((b) => (b.onclick = () => { cart[+b.dataset.uncart].cart = false; saveWish(); viewWishlist(); }));
+    body.querySelectorAll("[data-est]").forEach((inp) => (inp.onchange = () => {
+      const v = parseFloat(String(inp.value).replace(",", "."));
+      if (!isNaN(v) && v >= 0) { settings.est = { ...settings.est, [inp.dataset.est]: v }; store.set("settings", settings); viewWishlist(); const d = view.querySelector(".est-set"); if (d) d.open = true; }
+    }));
+    body.querySelectorAll("[data-open]").forEach((b) => (b.onclick = async () => {
+      const w = cart[+b.dataset.open];
+      const win = window.open("about:blank", "_blank"); // ouvert tout de suite (sinon Safari bloque la fenêtre)
+      try {
+        const a = await api("album", { s: w.s, id: w.id });
+        const m = a.links.map((l) => ({ url: l, m: parseMarket(l) })).find((x) => x.m);
+        let url = m ? agentLink(m.m) : null;
+        if (!url) {
+          if (m) { try { await navigator.clipboard.writeText(m.url); toast(t("copiedPaste", { a: agent.name })); } catch {} }
+          url = agent.home || a.url;
+        }
+        if (win) win.location.href = url; else location.href = url;
+        w.opened = true; saveWish(); viewWishlist();
+      } catch (e) { if (win) win.close(); toast(e.message); }
+    }));
+  }
+
+  // ---------- Recadrage de la photo avant la recherche ----------
+  function cropper(file, onDone) {
+    const url = URL.createObjectURL(file);
+    const box = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+    $("#prev").innerHTML = `<div class="crop-t">${esc(t("cropTitle"))}</div>
+      <div class="crop"><img src="${url}" alt="" id="cropImg"><div class="crop-box" id="cropBox"><i class="crop-h"></i></div></div>
+      <div class="muted" style="margin:8px 0 10px">${esc(t("cropHint"))}</div>
+      <div class="row"><button type="button" class="btn grad" id="cropGo">${ICON.search} ${esc(t("cropSearch"))}</button><button type="button" class="btn ghost" id="cropFull">${esc(t("cropFull"))}</button></div>`;
+    const drop = $("#drop"); drop.classList.add("has", "cropping");
+    const el = $("#cropBox"), wrap = el.parentElement;
+    const draw = () => Object.assign(el.style, { left: box.x * 100 + "%", top: box.y * 100 + "%", width: box.w * 100 + "%", height: box.h * 100 + "%" });
+    draw();
+    let mode = null, sx0, sy0, b0;
+    const down = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      mode = e.target.classList.contains("crop-h") ? "size" : "move";
+      sx0 = e.clientX; sy0 = e.clientY; b0 = { ...box };
+      el.setPointerCapture(e.pointerId);
+    };
+    const move = (e) => {
+      if (!mode) return;
+      const r = wrap.getBoundingClientRect();
+      const dx = (e.clientX - sx0) / r.width, dy = (e.clientY - sy0) / r.height;
+      if (mode === "move") { box.x = Math.min(Math.max(0, b0.x + dx), 1 - box.w); box.y = Math.min(Math.max(0, b0.y + dy), 1 - box.h); }
+      else { box.w = Math.min(Math.max(0.15, b0.w + dx), 1 - box.x); box.h = Math.min(Math.max(0.15, b0.h + dy), 1 - box.y); }
+      draw();
+    };
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", () => (mode = null));
+    // le cadre ne doit pas ouvrir le sélecteur de photo
+    $("#prev").addEventListener("click", (e) => { if (e.target.closest(".crop, button")) e.preventDefault(); });
+    $("#cropFull").onclick = (e) => { e.preventDefault(); drop.classList.remove("cropping"); onDone(file, url); };
+    $("#cropGo").onclick = (e) => {
+      e.preventDefault();
+      const im = $("#cropImg");
+      const c = document.createElement("canvas");
+      const W = im.naturalWidth, H = im.naturalHeight;
+      c.width = Math.round(W * box.w); c.height = Math.round(H * box.h);
+      c.getContext("2d").drawImage(im, W * box.x, H * box.y, c.width, c.height, 0, 0, c.width, c.height);
+      c.toBlob((blob) => { drop.classList.remove("cropping"); onDone(blob || file, URL.createObjectURL(blob || file)); }, "image/jpeg", 0.92);
+    };
+  }
+
   // ---------- Écran : réglages ----------
   function viewSettings() {
     header(t("tabSettings"), { large: true });
@@ -1044,6 +1398,7 @@
           <div class="pv dark ${settings.theme === "dark" ? "on" : ""}" data-theme="dark"><i></i><i></i><i></i></div>
         </div>
       </div>
+      <div class="list"><label class="row-item switch-row"><span>🈯 ${esc(t("translateTitles"))}</span><input type="checkbox" class="switch" id="trSw" ${settings.translate ? "checked" : ""}></label></div>
       <div class="group-title">${esc(t("color"))}</div>
       <div class="list pad"><div class="swatches">${Object.entries(ACCENTS).map(([k, v]) => `
         <button class="sw ${settings.accent === k ? "on" : ""}" data-accent="${k}" aria-label="${esc(t("c" + k[0].toUpperCase() + k.slice(1)))}">
@@ -1054,6 +1409,7 @@
       <div class="list">
         <a class="row-item" href="#/agent"><span class="ri-ic" style="background:#ff9f0a">🛒</span><span>${esc(t("myAgent"))}<small>${agent ? esc(agent.name) : esc(t("notConfigured"))}</small></span>${ICON.chevron}</a>
         <a class="row-item" href="#/edit"><span class="ri-ic" style="background:#34c759">🛍️</span><span>${esc(t("myStores"))}<small>${stores.length}</small></span>${ICON.chevron}</a>
+        <a class="row-item" href="#/alerts"><span class="ri-ic" style="background:#ff375f;color:#fff">${ICON.bell}</span><span>${esc(t("alertsTitle"))}<small>${alerts.length}${alertNewTotal() ? " · " + esc(t("newCount", { n: alertNewTotal() })) : ""}</small></span>${ICON.chevron}</a>
       </div>
       <div class="group-title">${esc(t("about"))}</div>
       <div class="list">
@@ -1068,6 +1424,7 @@
       view.querySelectorAll(".seg-b").forEach((x) => x.classList.toggle("on", x.dataset.theme === settings.theme));
       view.querySelectorAll(".pv").forEach((x) => x.classList.toggle("on", x.dataset.theme === settings.theme));
     }));
+    $("#trSw").onchange = (e) => { settings.translate = e.target.checked; saveSettings(); };
     view.querySelectorAll("[data-accent]").forEach((b) => (b.onclick = () => {
       settings.accent = b.dataset.accent; saveSettings();
       view.querySelectorAll(".sw").forEach((x) => x.classList.toggle("on", x === b));
@@ -1098,6 +1455,9 @@
     if (parts[0] === "search") return { name: "search", tab: "search", depth: 0, run: () => viewSearch(params.get("q") || "") };
     if (parts[0] === "photo") return { name: "photo", tab: "photo", depth: 0, run: viewPhoto };
     if (parts[0] === "settings") return { name: "settings", tab: "settings", depth: 0, run: viewSettings };
+    if (parts[0] === "wishlist") return { name: "wishlist", tab: "wish", depth: 0, run: viewWishlist };
+    if (parts[0] === "alerts") return { name: "alerts", tab: "search", depth: 1, run: viewAlerts };
+    if (parts[0] === "alert" && parts[1] != null) return { name: "alert", tab: "search", depth: 2, run: () => viewAlert(parts[1]) };
     if (parts[0] === "edit") return { name: "edit", tab: "settings", depth: 1, run: viewEdit };
     if (parts[0] === "agent") return { name: "agent", tab: "settings", depth: 1, run: viewAgent };
     return { name: "stores", tab: "stores", depth: 0, run: viewStores };
@@ -1136,7 +1496,8 @@
   route();
 
   // prépare la recherche instantanée en arrière-plan
-  const warm = () => buildSearchIndex().catch(() => {});
+  refreshRate();
+  const warm = () => buildSearchIndex().then(checkAlerts).catch(() => {});
   if (window.requestIdleCallback) requestIdleCallback(warm, { timeout: 4000 }); else setTimeout(warm, 2500);
 
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});

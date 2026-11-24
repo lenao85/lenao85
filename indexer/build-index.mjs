@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { AutoProcessor, AutoModel, RawImage } from "@huggingface/transformers";
 
 const BASE = (process.env.BASE_URL || "https://lenao85.lenaodossantos85.workers.dev").replace(/\/$/, "");
-const MAX_PAGES = +(process.env.MAX_PAGES || 8);
+const MAX_PAGES = +(process.env.MAX_PAGES || 15);
 const MODEL = "Xenova/dinov2-small"; // doit être le même que dans public/app.js
 const DIM = 384;
 const ROOT = new URL("..", import.meta.url).pathname;
