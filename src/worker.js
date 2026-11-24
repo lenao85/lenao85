@@ -160,44 +160,50 @@ async function image(sp, ctx) {
 }
 
 // Index de la recherche par photo : fichiers publiés chaque nuit par GitHub Actions (release "index")
-async function indexFile(name, env) {
-  if (!["meta.json", "vecs.bin"].includes(name)) return new Response("not found", { status: 404 });
-  const repo = env.INDEX_REPO || "lenao85/lenao85";
-  const up = await fetch(`https://github.com/${repo}/releases/download/index/${name}`, {
-    cf: { cacheTtl: 1800, cacheEverything: true },
-  });
-  if (!up.ok) return json({ error: "Index pas encore prêt" }, 404);
-  return new Response(up.body, {
-    headers: {
-      "content-type": name.endsWith(".json") ? "application/json; charset=utf-8" : "application/octet-stream",
-      "cache-control": "public, max-age=1800",
-      "access-control-allow-origin": "*",
-    },
-  });
+// Fichier téléchargé une fois puis gardé dans le cache Cloudflare. On met en cache le FICHIER final,
+// jamais les redirections : GitHub et Hugging Face redirigent vers des liens signés qui expirent.
+async function cachedAsset(key, urls, ttl, contentType, ctx) {
+  const cache = caches.default;
+  const k = new Request(`https://asset.cache/${key}`);
+  const hit = await cache.match(k);
+  if (hit) return hit;
+  for (const u of urls) {
+    try {
+      const up = await fetch(u, { redirect: "follow", headers: { "user-agent": "yupoo-finder" } });
+      if (!up.ok) continue;
+      const res = new Response(up.body, {
+        headers: { "content-type": contentType, "cache-control": `public, max-age=${ttl}`, "access-control-allow-origin": "*" },
+      });
+      ctx.waitUntil(cache.put(k, res.clone()));
+      return res;
+    } catch {}
+  }
+  return null;
 }
 
-// Fichiers du modèle photo (Hugging Face) servis depuis notre adresse : évite les soucis CORS sur iPhone
-// Hugging Face redirige vers un lien signé qui expire : on garde en cache le FICHIER final
-// (cache Cloudflare de notre côté), jamais la redirection.
-async function modelFile(path, ctx) {
-  if (!/^Xenova\/dinov2-small\/resolve\/main\/[A-Za-z0-9_./-]+$/.test(path) || path.includes("..")) {
-    return new Response("not found", { status: 404 });
-  }
-  const cache = caches.default;
-  const key = new Request(`https://model.cache/v2/${path}`);
-  const hit = await cache.match(key);
-  if (hit) return hit;
-  const up = await fetch(`https://huggingface.co/${path}`, { redirect: "follow", cf: { cacheTtl: 0, cacheEverything: false } });
-  if (!up.ok) return new Response("not found", { status: up.status });
-  const res = new Response(up.body, {
-    headers: {
-      "content-type": up.headers.get("content-type") || "application/octet-stream",
-      "cache-control": "public, max-age=2592000",
-      "access-control-allow-origin": "*",
-    },
-  });
-  ctx.waitUntil(cache.put(key, res.clone()));
-  return res;
+// Index de la recherche par photo : publié chaque nuit par GitHub Actions (release « index »)
+async function indexFile(name, env, ctx) {
+  if (!["meta.json", "vecs.bin"].includes(name)) return new Response("not found", { status: 404 });
+  const repo = env.INDEX_REPO || "lenao85/lenao85";
+  // la clé change toutes les 30 min pour récupérer l'index de la nuit
+  const slot = Math.floor(Date.now() / 1800000);
+  const res = await cachedAsset(`index/${slot}/${name}`, [`https://github.com/${repo}/releases/download/index/${name}`], 1800,
+    name.endsWith(".json") ? "application/json; charset=utf-8" : "application/octet-stream", ctx);
+  return res || json({ error: "Index pas encore prêt" }, 404);
+}
+
+// Modèle photo : copie sur GitHub (release « model ») en priorité, Hugging Face en secours
+const MODEL_ASSETS = { "config.json": "config.json", "preprocessor_config.json": "preprocessor_config.json", "onnx/model_quantized.onnx": "model_quantized.onnx" };
+async function modelFile(path, env, ctx) {
+  const m = path.match(/^Xenova\/dinov2-small\/resolve\/main\/(.+)$/);
+  const asset = m && MODEL_ASSETS[m[1]];
+  if (!asset) return new Response("not found", { status: 404 });
+  const repo = env.INDEX_REPO || "lenao85/lenao85";
+  const res = await cachedAsset(`model/v3/${asset}`, [
+    `https://github.com/${repo}/releases/download/model/${asset}`,
+    `https://huggingface.co/${path}`,
+  ], 2592000, asset.endsWith(".json") ? "application/json; charset=utf-8" : "application/octet-stream", ctx);
+  return res || new Response("not found", { status: 502 });
 }
 
 // ---------- Identification d'un article (marque, modèle, référence) ----------
@@ -289,8 +295,8 @@ export default {
       if (url.pathname === "/api/identify") return await identify(request, env);
       if (url.pathname.startsWith("/api/")) return await api(url.pathname, url.searchParams);
       if (url.pathname === "/img") return await image(url.searchParams, ctx);
-      if (url.pathname.startsWith("/index/")) return await indexFile(url.pathname.slice(7), env);
-      if (url.pathname.startsWith("/models/")) return await modelFile(url.pathname.slice(8), ctx);
+      if (url.pathname.startsWith("/index/")) return await indexFile(url.pathname.slice(7), env, ctx);
+      if (url.pathname.startsWith("/models/")) return await modelFile(url.pathname.slice(8), env, ctx);
     } catch (e) {
       return json({ error: e.message || "Erreur" }, e.status || 500);
     }

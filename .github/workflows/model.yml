@@ -1,0 +1,26 @@
+# Copie le modèle photo (DINOv2) depuis Hugging Face vers la release GitHub « model »,
+# d'où l'appli le télécharge (plus fiable que Hugging Face depuis Cloudflare).
+name: Modèle photo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Télécharger et publier le modèle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=https://huggingface.co/Xenova/dinov2-small/resolve/main
+          curl -fsSL -o config.json "$base/config.json"
+          curl -fsSL -o preprocessor_config.json "$base/preprocessor_config.json"
+          curl -fsSL -o model_quantized.onnx "$base/onnx/model_quantized.onnx"
+          ls -la
+          gh release view model -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create model -R "$GITHUB_REPOSITORY" --title "Modèle photo" --notes "DINOv2 small (q8) pour la recherche par photo." --latest=false
+          gh release upload model -R "$GITHUB_REPOSITORY" config.json preprocessor_config.json model_quantized.onnx --clobber
