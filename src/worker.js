@@ -213,7 +213,8 @@ function parseJsonLoose(text) {
 
 async function runVision(env, model, b64, hints, lang = "fr") {
   const langName = { fr: "français", en: "anglais (English)", es: "espagnol (español)" }[lang] || "français";
-  const text = `${IDENTIFY_PROMPT}\nIMPORTANT : écris toutes les VALEURS en ${langName} (les clés JSON restent identiques ; "confiance" reste "haute", "moyenne" ou "faible").\n\nINDICES (titres d'albums ressemblants) :\n${hints.length ? hints.map((h) => "- " + h).join("\n") : "(aucun)"}`;
+  const langRule = lang === "fr" ? "" : `LANGUAGE RULE: write every JSON VALUE (modele, coloris, categorie, pays_marque, explication…) in ${langName}, NOT in French. Keep the JSON keys exactly as given, and keep "confiance" as "haute", "moyenne" or "faible".\n\n`;
+  const text = `${langRule}${IDENTIFY_PROMPT}\nIMPORTANT : écris toutes les VALEURS en ${langName} (les clés JSON restent identiques ; "confiance" reste "haute", "moyenne" ou "faible").\n\nINDICES (titres d'albums ressemblants) :\n${hints.length ? hints.map((h) => "- " + h).join("\n") : "(aucun)"}`;
   const input = {
     messages: [
       { role: "user", content: [
