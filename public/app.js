@@ -7,6 +7,7 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const img = (u) => (u ? `/img?u=${encodeURIComponent(u)}` : "");
   const yupoo = (s) => `https://${s}.x.yupoo.com`;
+  const APP_VERSION = "3.0";
 
   // ---------- Stockage local ----------
   const store = {
@@ -20,6 +21,37 @@
   const saveFavs = () => store.set("favs", [...favs]);
   const setStatus = (s, v) => { if (status[s] !== v) { status[s] = v; store.set("status", status); } };
 
+  // ---------- Réglages : thème, couleur, langue ----------
+  const ACCENTS = {
+    aurora: { a: "#6c5ce7", d: "#8b7dff", g: "linear-gradient(135deg,#4f8cff 0%,#8b5cf6 50%,#ec4899 100%)" },
+    ocean: { a: "#0a84ff", d: "#409cff", g: "linear-gradient(135deg,#22d3ee 0%,#0a84ff 50%,#6366f1 100%)" },
+    mint: { a: "#10b981", d: "#34d399", g: "linear-gradient(135deg,#34d399 0%,#10b981 50%,#0ea5e9 100%)" },
+    sunset: { a: "#f2643d", d: "#ff8a5c", g: "linear-gradient(135deg,#f59e0b 0%,#f2643d 50%,#ec4899 100%)" },
+    rose: { a: "#e8457c", d: "#ff6b9a", g: "linear-gradient(135deg,#f472b6 0%,#e8457c 50%,#a855f7 100%)" },
+  };
+  const LANGS = Object.keys(window.I18N);
+  const autoLang = () => { const l = (navigator.language || "fr").slice(0, 2); return LANGS.includes(l) ? l : "fr"; };
+  let settings = { theme: "auto", accent: "aurora", lang: null, ...store.get("settings", {}) };
+  const lang = () => settings.lang || autoLang();
+  const t = (k, vars = {}) => {
+    const s = window.I18N[lang()]?.[k] ?? window.I18N.fr[k] ?? k;
+    return s.replace(/\{(\w+)\}/g, (_, x) => (vars[x] ?? ""));
+  };
+
+  function applySettings() {
+    const root = document.documentElement;
+    if (settings.theme === "auto") delete root.dataset.theme; else root.dataset.theme = settings.theme;
+    const ac = ACCENTS[settings.accent] || ACCENTS.aurora;
+    const dark = settings.theme === "dark" || (settings.theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
+    root.style.setProperty("--accent", dark ? ac.d : ac.a);
+    root.style.setProperty("--grad", ac.g);
+    root.lang = lang();
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", dark ? "#000000" : "#f4f3fa"));
+    renderTabs();
+  }
+  const saveSettings = () => { store.set("settings", settings); applySettings(); };
+  matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", applySettings);
+
   function normalizeStore(input) {
     let s = String(input || "").trim().toLowerCase();
     const m = s.match(/([a-z0-9][a-z0-9-]*)\.x\.yupoo\.com/);
@@ -32,25 +64,30 @@
   const ICON = {
     search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>`,
     cam: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3.5 8.5a2 2 0 0 1 2-2h2.2l1.6-2.2h5.4l1.6 2.2h2.2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.8"/></svg>`,
+    grid: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2.2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2.2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2.2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2.2"/></svg>`,
+    gear: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`,
     chevron: `<svg width="8" height="14" viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m1 1 6 6-6 6"/></svg>`,
+    arrowUp: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>`,
+    check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>`,
   };
   const field = (attrs) => `<label class="field">${ICON.search}<input ${attrs}></label>`;
-  const bigTitle = (t, sub = "") => `<div class="bigtitle"><h2>${esc(t)}</h2>${sub ? `<p>${sub}</p>` : ""}</div>`;
+  const bigTitle = (title, sub = "") => `<div class="bigtitle"><h2>${esc(title)}</h2>${sub ? `<p>${sub}</p>` : ""}</div>`;
 
   function toast(msg) {
-    const t = $("#toast");
-    t.textContent = msg; t.hidden = false;
-    clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 1800);
+    const el = $("#toast");
+    el.textContent = msg; el.hidden = false;
+    el.classList.remove("show"); void el.offsetWidth; el.classList.add("show");
+    clearTimeout(toast.t); toast.t = setTimeout(() => { el.classList.remove("show"); setTimeout(() => (el.hidden = true), 250); }, 1800);
   }
 
   async function copy(text) {
-    try { await navigator.clipboard.writeText(text); toast("Lien copié"); }
-    catch { prompt("Copie ce lien :", text); }
+    try { await navigator.clipboard.writeText(text); toast(t("linkCopied")); }
+    catch { prompt(t("copyThisLink"), text); }
   }
 
   const sleep = (ms, signal) => new Promise((ok, ko) => {
-    const t = setTimeout(ok, ms);
-    signal?.addEventListener("abort", () => { clearTimeout(t); ko(new DOMException("abort", "AbortError")); });
+    const tm = setTimeout(ok, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(tm); ko(new DOMException("abort", "AbortError")); });
   });
 
   // Yupoo freine (erreur 429) si on va trop vite : on attend un peu et on réessaie
@@ -58,7 +95,7 @@
     for (let attempt = 0; ; attempt++) {
       const res = await fetch(`/api/${path}?${new URLSearchParams(params)}`, { signal });
       if (res.status === 429 && attempt < 4) { await sleep(1500 * 2 ** attempt + Math.random() * 1000, signal); continue; }
-      const data = await res.json().catch(() => ({ error: "Réponse invalide" }));
+      const data = await res.json().catch(() => ({ error: "Erreur" }));
       if (!res.ok || data.error) throw new Error(data.error || `Erreur ${res.status}`);
       return data;
     }
@@ -68,19 +105,21 @@
     document.body.classList.toggle("large", large);
     $("#title").textContent = title;
     $("#back").hidden = !back;
+    $("#backLbl").textContent = t("back");
     $("#topRight").innerHTML = right;
     document.title = title + " · Yupoo Finder";
   }
 
   function itemCard(a, s, showStore, score) {
     return `<a class="item" href="#/s/${esc(s)}/a/${esc(a.id)}">
-      <div class="im">${a.cover ? `<img loading="lazy" src="${img(a.cover)}" alt="">` : ""}
+      <div class="im">${a.cover ? `<img loading="lazy" src="${img(a.cover)}" alt="" onload="this.classList.add('ld')">` : ""}
         ${score != null ? `<span class="score">${Math.round(score * 100)}%</span>` : ""}
         ${a.count ? `<span class="cnt">${a.count} 📷</span>` : ""}</div>
-      <div class="tt">${esc(a.title || "Sans titre")}</div>
+      <div class="tt">${esc(a.title || t("untitled"))}</div>
       ${showStore ? `<div class="st">${esc(s)}</div>` : ""}
     </a>`;
   }
+  const skeleton = (n = 6) => `<div class="grid">${Array.from({ length: n }, () => `<div class="item sk"><div class="im"></div><div class="tt"><i></i><i></i></div></div>`).join("")}</div>`;
 
   // Exécute des tâches en parallèle (limite N à la fois)
   async function pool(items, n, fn) {
@@ -92,8 +131,23 @@
   let ctrl = null; // annule les requêtes quand on change de page
   const newCtrl = () => { if (ctrl) ctrl.abort(); ctrl = new AbortController(); return ctrl.signal; };
 
+  // ---------- Barre d'onglets ----------
+  const TABS = [["stores", "#/", "grid", "tabStores"], ["search", "#/search", "search", "tabSearch"], ["photo", "#/photo", "cam", "tabPhoto"], ["settings", "#/settings", "gear", "tabSettings"]];
+  let currentTab = "stores";
+  function renderTabs() {
+    const nav = $("#tabs");
+    nav.innerHTML = `<i class="pill"></i>` + TABS.map(([id, href, ic, key]) => `<a href="${href}" data-tab="${id}" class="${id === currentTab ? "on" : ""}">${ICON[ic]}<span>${esc(t(key))}</span></a>`).join("");
+    nav.style.setProperty("--tab", TABS.findIndex(([id]) => id === currentTab));
+  }
+  function setTab(id) {
+    currentTab = id;
+    const nav = $("#tabs");
+    nav.style.setProperty("--tab", TABS.findIndex(([x]) => x === id));
+    nav.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a.dataset.tab === id));
+  }
+
   // ---------- Écran : liste des vendeurs ----------
-  // Aperçu (4 dernières couvertures) gardé 12 h dans le téléphone
+  // Aperçu (dernières couvertures) gardé 12 h dans le téléphone
   const PV_TTL = 12 * 3600 * 1000;
   const getPreview = (s) => { const p = store.get("pv:" + s, null); return p && Date.now() - p.t < PV_TTL ? p : null; };
 
@@ -103,7 +157,8 @@
     const mosaic = covers.length
       ? `<div class="mosaic">${[0, 1, 2].map((i) => `<i style="background-image:url('${covers[i] ? img(covers[i]) : ""}')"></i>`).join("")}</div>`
       : `<div class="mosaic empty"></div>`;
-    const sub = pv ? (pv.pages > 1 ? `${pv.pages * 120 > 999 ? Math.round(pv.pages * 120 / 100) / 10 + " k" : pv.pages * 120}+ albums` : "Catalogue") : status[s] === "bad" ? "Introuvable" : "Yupoo";
+    const n = pv ? pv.pages * 120 : 0;
+    const sub = pv ? (pv.pages > 1 ? t("albumsCount", { n: n > 999 ? Math.round(n / 100) / 10 + " k" : n }) : t("catalog")) : status[s] === "bad" ? t("notFound") : "Yupoo";
     return `<a class="store ${status[s] === "bad" ? "bad" : ""}" href="#/s/${esc(s)}" data-name="${esc(s)}">
       ${mosaic}${favs.has(s) ? `<span class="star">★</span>` : ""}
       <div class="info"><i class="logo"></i><div class="nm">${esc(s)}</div><div class="sub">${sub}</div></div>
@@ -111,27 +166,27 @@
   }
 
   function viewStores() {
-    header("Vendeurs", { large: true, right: `<button id="editBtn">Modifier</button>` });
+    header(t("tabStores"), { large: true, right: `<button id="editBtn">${esc(t("edit"))}</button>` });
     $("#editBtn").onclick = () => (location.hash = "#/edit");
     const sorted = [...stores].sort((a, b) => a.localeCompare(b));
     const fl = sorted.filter((s) => favs.has(s));
     view.innerHTML = `
-      ${bigTitle("Vendeurs", `${stores.length} catalogues Yupoo`)}
+      ${bigTitle(t("tabStores"), t("catalogs", { n: stores.length }))}
       <a class="hero" href="#/search">
         <span class="hi">${ICON.search}</span>
-        <span><b>Rechercher partout</b><span>Un article chez tous tes vendeurs</span></span>
+        <span><b>${esc(t("searchEverywhere"))}</b><span>${esc(t("searchEverywhereSub"))}</span></span>
         <span class="arrow">${ICON.chevron}</span>
       </a>
-      <a class="agent-row" href="#/agent"><span class="ag-ic">🛒</span><span><b>Mon agent</b><small>${agent ? esc(agent.name) + (Object.keys(agent.templates || {}).length ? " · ouverture directe" : " · lien copié") : "Non configuré"}</small></span>${ICON.chevron}</a>
-      ${fl.length ? `<div class="section-title">Favoris</div>
+      <a class="agent-row" href="#/agent"><span class="ag-ic">🛒</span><span><b>${esc(t("myAgent"))}</b><small>${agent ? esc(agent.name) + " · " + t(Object.keys(agent.templates || {}).length ? "directOpen" : "linkCopy") : t("notConfigured")}</small></span>${ICON.chevron}</a>
+      ${fl.length ? `<div class="section-title">${esc(t("favorites"))}</div>
         <div class="favs">${fl.map((s) => {
           const c = getPreview(s)?.covers?.[0];
           return `<a class="fav" href="#/s/${esc(s)}"><span class="ring"><i ${c ? `style="background-image:url('${img(c)}')"` : ""}></i></span><span>${esc(s)}</span></a>`;
         }).join("")}</div>` : ""}
-      <div class="section-title">Tous les vendeurs <small id="cnt"></small></div>
-      <div class="searchbar">${field(`id="filter" type="search" placeholder="Filtrer" autocomplete="off"`)}</div>
-      <div class="stores" id="grid">${sorted.map(storeCard).join("")}</div>
-      ${stores.length ? "" : `<div class="empty-state"><div class="big">🛍️</div><b>Aucun vendeur</b>Touche « Modifier » pour en ajouter.</div>`}`;
+      <div class="section-title">${esc(t("allStores"))}</div>
+      <div class="searchbar">${field(`id="filter" type="search" placeholder="${esc(t("filter"))}" autocomplete="off"`)}</div>
+      <div class="stores stagger" id="grid">${sorted.map(storeCard).join("")}</div>
+      ${stores.length ? "" : `<div class="empty-state"><div class="big">🛍️</div><b>${esc(t("noStores"))}</b>${esc(t("noStoresSub"))}</div>`}`;
     $("#filter").oninput = (e) => {
       const q = e.target.value.toLowerCase();
       view.querySelectorAll(".store").forEach((el) => (el.hidden = !el.dataset.name.includes(q)));
@@ -150,7 +205,7 @@
           if (/404/.test(e.message)) setStatus(s, "bad");
         }
         const el = view.querySelector(`.store[data-name="${CSS.escape(s)}"]`);
-        if (el && location.hash.replace(/^#\/?/, "") === "") { const n = document.createElement("div"); n.innerHTML = storeCard(s); n.firstElementChild.hidden = el.hidden; el.replaceWith(n.firstElementChild); }
+        if (el && currentRoute === "stores") { const n = document.createElement("div"); n.innerHTML = storeCard(s); n.firstElementChild.hidden = el.hidden; n.firstElementChild.classList.add("pop"); el.replaceWith(n.firstElementChild); }
       });
     }
   }
@@ -162,13 +217,14 @@
     $("#favBtn").onclick = () => {
       favs.has(s) ? favs.delete(s) : favs.add(s); saveFavs();
       $("#favBtn").textContent = favs.has(s) ? "★" : "☆";
-      toast(favs.has(s) ? "Ajouté aux favoris" : "Retiré des favoris");
+      $("#favBtn").classList.remove("bump"); void $("#favBtn").offsetWidth; $("#favBtn").classList.add("bump");
+      toast(t(favs.has(s) ? "addedFav" : "removedFav"));
     };
     view.innerHTML = `
       ${bigTitle(s, `<a href="${yupoo(s)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(s)}.x.yupoo.com ↗</a>`)}
-      <form class="searchbar" id="sf">${field(`id="sq" type="search" placeholder="Chercher chez ${esc(s)}" autocomplete="off" enterkeyhint="search"`)}</form>
-      <div id="list" class="grid"></div><div id="more"></div>
-      <a class="btn ghost block" href="${yupoo(s)}" target="_blank" rel="noopener">Ouvrir sur Yupoo ↗</a>`;
+      <form class="searchbar" id="sf">${field(`id="sq" type="search" placeholder="${esc(t("searchAt", { s }))}" autocomplete="off" enterkeyhint="search"`)}</form>
+      <div id="list" class="grid stagger"></div><div id="more"></div>
+      <a class="btn ghost block" href="${yupoo(s)}" target="_blank" rel="noopener">${esc(t("openYupoo"))} ↗</a>`;
     const signal = newCtrl();
     const list = $("#list"), more = $("#more");
     let pageNo = 1, pages = 1, q = "", loading = false;
@@ -177,21 +233,21 @@
       if (loading) return;
       loading = true;
       if (reset) { list.innerHTML = ""; pageNo = 1; }
-      more.innerHTML = `<div class="spinner"></div>`;
+      more.innerHTML = reset ? skeleton(6) : `<div class="spinner"></div>`;
       try {
         const d = q ? await api("search", { s, q, p: pageNo }, signal) : await api("albums", { s, p: pageNo }, signal);
         setStatus(s, "ok");
         pages = d.pages;
         list.insertAdjacentHTML("beforeend", d.albums.map((a) => itemCard(a, s)).join(""));
-        if (!list.children.length) more.innerHTML = `<p class="center muted">Aucun album${q ? ` pour « ${esc(q)} »` : ""}.</p>`;
-        else if (pageNo < pages) more.innerHTML = `<button class="btn ghost block" id="mb">Voir plus (page ${pageNo + 1}/${pages})</button>`;
+        if (!list.children.length) more.innerHTML = `<p class="center muted">${esc(q ? t("noAlbumFor", { q }) : t("noAlbum"))}</p>`;
+        else if (pageNo < pages) more.innerHTML = `<button class="btn ghost block" id="mb">${esc(t("seeMore", { p: pageNo + 1, n: pages }))}</button>`;
         else more.innerHTML = "";
         const mb = $("#mb");
         if (mb) mb.onclick = () => { pageNo++; load(false); };
       } catch (e) {
         if (e.name === "AbortError") return;
         if (pageNo === 1 && !q) setStatus(s, "bad");
-        more.innerHTML = `<p class="center err">Impossible de charger ce vendeur.<br><span class="muted">${esc(e.message)} — vérifie le nom dans « Modifier ».</span></p>`;
+        more.innerHTML = `<p class="center err">${esc(t("cantLoadStore"))}<br><span class="muted">${esc(e.message)} — ${esc(t("checkName"))}.</span></p>`;
       } finally { loading = false; }
     }
     $("#sf").onsubmit = (e) => { e.preventDefault(); q = $("#sq").value.trim(); $("#sq").blur(); load(true); };
@@ -212,7 +268,7 @@
     { name: "Sugargoo", home: "https://www.sugargoo.com" },
   ];
   const PLATFORMS = { taobao: "Taobao", weidian: "Weidian", "1688": "1688" };
-  const platLabel = (p) => PLATFORMS[p] || "Lien";
+  const platLabel = (p) => PLATFORMS[p] || t("linkWord");
   let agent = store.get("agent", null); // { name, home, templates: { taobao, weidian, 1688 } }
   const saveAgent = () => store.set("agent", agent);
 
@@ -249,29 +305,25 @@
 
   function agentLink(market) {
     if (!market.id) return null;
-    const t = agent?.templates?.[market.platform];
-    return t ? t.split("{id}").join(market.id) : null;
+    const tp = agent?.templates?.[market.platform];
+    return tp ? tp.split("{id}").join(market.id) : null;
   }
 
   function buyPanel(a) {
     const markets = a.links.map((l) => ({ url: l, m: parseMarket(l) })).filter((x) => x.m);
     if (!agent) {
-      return `<div class="panel buy"><h2>Acheter via ton agent</h2>
-        <div class="muted">Ajoute cet article au panier de ton agent (Hipobuy, Boonbuy…) en un geste.</div>
-        <a class="btn grad block" href="#/agent">Configurer mon agent</a></div>`;
+      return `<div class="panel buy"><h2>${esc(t("buyViaAgent"))}</h2>
+        <div class="muted">${esc(t("buyViaAgentSub"))}</div>
+        <a class="btn grad block" href="#/agent">${esc(t("setupAgent"))}</a></div>`;
     }
     if (!markets.length) {
-      return `<div class="panel buy"><h2>Acheter via ${esc(agent.name)}</h2>
-        <div class="muted">Le vendeur n'a pas mis de lien Taobao ou Weidian dans cet album. Demande-le-lui (WhatsApp/WeChat souvent indiqués sur sa page), ou cherche le même article chez un autre vendeur.</div></div>`;
+      return `<div class="panel buy"><h2>${esc(t("buyVia", { a: agent.name }))}</h2><div class="muted">${esc(t("noMarketLink"))}</div></div>`;
     }
-    return `<div class="panel buy"><h2>Acheter via ${esc(agent.name)}</h2>
-      ${markets.map((x, i) => {
-        const direct = agentLink(x.m);
-        return `<button class="btn ${i ? "ghost" : "grad"} block" data-buy="${i}">${direct ? "🛒 Ouvrir chez " + esc(agent.name) : "🛒 Copier le lien et ouvrir " + esc(agent.name)}<small class="plat">${platLabel(x.m.platform)}</small></button>`;
-      }).join("")}
+    return `<div class="panel buy"><h2>${esc(t("buyVia", { a: agent.name }))}</h2>
+      ${markets.map((x, i) => `<button class="btn ${i ? "ghost" : "grad"} block" data-buy="${i}">${esc(t(agentLink(x.m) ? "openAt" : "copyOpen", { a: agent.name }))}<small class="plat">${esc(platLabel(x.m.platform))}</small></button>`).join("")}
       <div class="muted" style="margin-top:8px;font-size:13px">${markets.some((x) => agentLink(x.m))
-        ? "La page de l'article s'ouvre chez ton agent : choisis la taille puis « Ajouter au panier »."
-        : `Le lien ${platLabel(markets[0].m.platform)} est copié : colle-le dans la barre de recherche de ${esc(agent.name)}. <a href="#/agent" style="color:var(--accent)">Apprends le format à l'appli</a> pour ouvrir l'article directement.`}</div>
+        ? esc(t("directHint"))
+        : `${esc(t("copyHint", { p: platLabel(markets[0].m.platform), a: agent.name }))} <a href="#/agent" style="color:var(--accent)">${esc(t("learnLink"))}</a>${esc(t("learnLinkEnd"))}`}</div>
     </div>`;
   }
 
@@ -281,35 +333,34 @@
       const x = markets[+b.dataset.buy];
       const direct = agentLink(x.m);
       if (direct) { window.open(direct, "_blank", "noopener"); return; }
-      try { await navigator.clipboard.writeText(x.url); toast("Lien copié, colle-le chez " + agent.name); } catch {}
+      try { await navigator.clipboard.writeText(x.url); toast(t("copiedPaste", { a: agent.name })); } catch {}
       if (agent.home) window.open(agent.home, "_blank", "noopener");
     }));
   }
 
   function viewAgent() {
-    header("Mon agent", { back: true });
+    header(t("myAgent"), { back: true });
     const cur = agent || { name: "", home: "", templates: {} };
     const tpl = cur.templates || {};
     view.innerHTML = `
-      ${bigTitle("Mon agent", "Ajoute les articles au panier de ton agent en un geste")}
+      ${bigTitle(t("myAgent"), esc(t("agentSub")))}
       <div class="panel">
-        <h2>1. Choisis ton agent</h2>
-        <div class="chips" style="flex-wrap:wrap;margin:8px 0 0">${AGENTS.map((g) => `<button class="chip ${cur.name === g.name ? "on" : ""}" data-ag="${esc(g.name)}">${esc(g.name)}</button>`).join("")}<button class="chip ${cur.name && !AGENTS.some((g) => g.name === cur.name) ? "on" : ""}" data-ag="">Autre</button></div>
-        <label class="field" style="margin-top:12px"><input id="agName" placeholder="Nom de l'agent" value="${esc(cur.name)}"></label>
-        <label class="field" style="margin-top:8px"><input id="agHome" placeholder="Adresse du site (ex : https://www.boonbuy.com)" value="${esc(cur.home)}" autocapitalize="off"></label>
+        <h2>${esc(t("agentStep1"))}</h2>
+        <div class="chips wrap" style="margin:8px 0 0">${AGENTS.map((g) => `<button class="chip ${cur.name === g.name ? "on" : ""}" data-ag="${esc(g.name)}">${esc(g.name)}</button>`).join("")}<button class="chip ${cur.name && !AGENTS.some((g) => g.name === cur.name) ? "on" : ""}" data-ag="">${esc(t("other"))}</button></div>
+        <label class="field" style="margin-top:12px"><input id="agName" placeholder="${esc(t("agentName"))}" value="${esc(cur.name)}"></label>
+        <label class="field" style="margin-top:8px"><input id="agHome" placeholder="${esc(t("agentHome"))}" value="${esc(cur.home)}" autocapitalize="off"></label>
       </div>
       <div class="panel">
-        <h2>2. Apprends le format à l'appli</h2>
-        <div class="muted" style="line-height:1.45">Sur le site de ton agent, ouvre n'importe quel article venant de <b>Weidian</b>, copie l'adresse de la page et colle-la ci-dessous. Fais pareil avec un article <b>Taobao</b>. L'appli saura alors ouvrir directement chaque article chez ton agent.</div>
+        <h2>${esc(t("agentStep2"))}</h2>
+        <div class="muted" style="line-height:1.45">${t("agentStep2Text")}</div>
         ${Object.entries(PLATFORMS).map(([k, label]) => `
-          <div class="learn"><div class="learn-h"><b>Article ${label}</b>${tpl[k] ? `<span class="okk">✓ Appris</span>` : `<span class="muted">optionnel</span>`}</div>
-          <label class="field"><input data-learn="${k}" placeholder="Lien d'un article ${label} chez ton agent" autocapitalize="off" autocomplete="off"></label>
+          <div class="learn"><div class="learn-h"><b>${esc(t("articleOf", { p: label }))}</b>${tpl[k] ? `<span class="okk">${esc(t("learned"))}</span>` : `<span class="muted">${esc(t("optional"))}</span>`}</div>
+          <label class="field"><input data-learn="${k}" placeholder="${esc(t("linkOfArticle", { p: label }))}" autocapitalize="off" autocomplete="off"></label>
           ${tpl[k] ? `<div class="muted tplv">${esc(tpl[k])}</div>` : ""}</div>`).join("")}
       </div>
-      <button class="btn block" id="agSave">Enregistrer</button>
-      ${agent ? `<button class="btn ghost block" id="agDel" style="color:var(--err)">Retirer mon agent</button>` : ""}
-      <div class="panel" style="margin-top:16px"><h2>🔒 Ton compte reste privé</h2>
-        <div class="muted" style="line-height:1.45">L'appli ne te demande jamais ton mot de passe. Connecte-toi une fois sur le site de ton agent dans Safari : comme tu restes connecté, chaque article que l'appli ouvre arrive directement sur ton compte. Tu n'as plus qu'à choisir la taille et toucher « Ajouter au panier ».</div></div>`;
+      <button class="btn block" id="agSave">${esc(t("save"))}</button>
+      ${agent ? `<button class="btn ghost block" id="agDel" style="color:var(--err)">${esc(t("removeAgent"))}</button>` : ""}
+      <div class="panel" style="margin-top:16px"><h2>${esc(t("privateT"))}</h2><div class="muted" style="line-height:1.45">${esc(t("privateS"))}</div></div>`;
     view.querySelectorAll("[data-ag]").forEach((c) => (c.onclick = () => {
       const g = AGENTS.find((x) => x.name === c.dataset.ag);
       $("#agName").value = g ? g.name : "";
@@ -320,50 +371,50 @@
     $("#agSave").onclick = () => {
       const name = $("#agName").value.trim();
       let home = $("#agHome").value.trim();
-      if (!name) return toast("Choisis ton agent");
+      if (!name) return toast(t("chooseAgent"));
       if (home && !/^https?:\/\//i.test(home)) home = "https://" + home;
       const templates = { ...(agent?.name === name ? agent.templates : {}) };
       for (const inp of view.querySelectorAll("[data-learn]")) {
         if (!inp.value.trim()) continue;
         const r = learnTemplate(inp.value);
-        if (!r) return toast(`Lien ${PLATFORMS[inp.dataset.learn]} non reconnu`);
-        if (r.guess && r.guess !== inp.dataset.learn && !confirm(`Ce lien ressemble à un article ${PLATFORMS[r.guess]}, pas ${PLATFORMS[inp.dataset.learn]}. L'utiliser quand même ?`)) return;
+        if (!r) return toast(t("linkNotRecognized", { p: PLATFORMS[inp.dataset.learn] }));
+        if (r.guess && r.guess !== inp.dataset.learn && !confirm(t("looksLike", { a: PLATFORMS[r.guess], b: PLATFORMS[inp.dataset.learn] }))) return;
         templates[inp.dataset.learn] = r.template;
         if (!home) { try { home = new URL(inp.value.trim()).origin; } catch {} }
       }
       agent = { name, home, templates };
-      saveAgent(); toast(`${name} enregistré`); viewAgent();
+      saveAgent(); toast(t("agentSaved", { a: name })); viewAgent();
     };
     const del = $("#agDel");
-    if (del) del.onclick = () => { if (confirm("Retirer ton agent ?")) { agent = null; store.set("agent", null); viewAgent(); } };
+    if (del) del.onclick = () => { if (confirm(t("removeAgentQ"))) { agent = null; store.set("agent", null); viewAgent(); } };
   }
 
   // ---------- Écran : un album ----------
   async function viewAlbum(s, id) {
     header(s, { back: true });
-    view.innerHTML = `<div class="spinner"></div>`;
+    view.innerHTML = `<div class="photos sk">${"<i></i>".repeat(9)}</div><div class="panel sk-panel"><i></i><i></i><i></i></div>`;
     const signal = newCtrl();
     try {
       const a = await api("album", { s, id }, signal);
       const firstPhoto = a.photos[0]?.full;
       const lensUrl = firstPhoto ? `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(location.origin + img(firstPhoto))}` : null;
       view.innerHTML = `
-        <div class="photos fade-in">${a.photos.map((p, i) => `<img loading="lazy" src="${img(p.thumb)}" data-i="${i}" alt="">`).join("")}</div>
-        <div class="panel">
+        <div class="photos fade-in">${a.photos.map((p, i) => `<img loading="lazy" src="${img(p.thumb)}" data-i="${i}" alt="" onload="this.classList.add('ld')">`).join("")}</div>
+        <div class="panel rise">
           <h3>${esc(a.title || "Album")}</h3>
-          <div class="muted">${a.photos.length} photos · <a href="#/s/${esc(s)}" style="color:var(--accent)">${esc(s)}</a></div>
+          <div class="muted">${esc(t("photos", { n: a.photos.length }))} · <a href="#/s/${esc(s)}" style="color:var(--accent)">${esc(s)}</a></div>
           <div class="row" style="margin-top:14px">
-            <a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">Ouvrir sur Yupoo</a>
-            <button class="btn ghost" id="cp">Copier le lien</button>
+            <a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(t("openYupoo"))}</a>
+            <button class="btn ghost" id="cp">${esc(t("copyLink"))}</button>
           </div>
         </div>
         ${buyPanel(a)}
-        ${a.links.length ? `<div class="panel links"><h2>Liens d'achat</h2>${a.links.map((l) => `<a href="${esc(l)}" target="_blank" rel="noopener">${esc(l)}</a>`).join("")}</div>` : ""}
-        <div class="panel"><h2>Le même article ailleurs</h2>
-          <div class="muted">Chez tes autres vendeurs</div>
-          <div id="similar"><button class="btn grad block" id="simBtn">${ICON.cam} Rechercher par photo</button></div>
+        ${a.links.length ? `<div class="panel links"><h2>${esc(t("buyLinks"))}</h2>${a.links.map((l) => `<a href="${esc(l)}" target="_blank" rel="noopener">${esc(l)}</a>`).join("")}</div>` : ""}
+        <div class="panel"><h2>${esc(t("sameElsewhere"))}</h2>
+          <div class="muted">${esc(t("atOtherStores"))}</div>
+          <div id="similar"><button class="btn grad block" id="simBtn">${ICON.cam} ${esc(t("searchByPhoto"))}</button></div>
           <div class="row" style="margin-top:8px">
-            <button class="btn small ghost" id="same">Par le titre</button>
+            <button class="btn small ghost" id="same">${esc(t("byTitle"))}</button>
             ${lensUrl ? `<a class="btn small ghost" href="${esc(lensUrl)}" target="_blank" rel="noopener">Google Lens</a>` : ""}
           </div>
         </div>`;
@@ -377,14 +428,14 @@
       };
     } catch (e) {
       if (e.name === "AbortError") return;
-      view.innerHTML = `<p class="center err">Album introuvable.<br><span class="muted">${esc(e.message)}</span></p>
-        <a class="btn ghost block" href="${esc(yupoo(s))}/albums/${esc(id)}?uid=1" target="_blank" rel="noopener">Essayer sur Yupoo ↗</a>`;
+      view.innerHTML = `<p class="center err">${esc(t("albumNotFound"))}<br><span class="muted">${esc(e.message)}</span></p>
+        <a class="btn ghost block" href="${esc(yupoo(s))}/albums/${esc(id)}?uid=1" target="_blank" rel="noopener">${esc(t("tryOnYupoo"))}</a>`;
     }
   }
 
   // Garde les mots utiles d'un titre (retire prix, symboles, chinois)
-  function keywords(t) {
-    return (t || "")
+  function keywords(title) {
+    return (title || "")
       .replace(/[€¥￥$]\s?[\d.,]+|[\d.,]+\s?[€¥￥$]/g, " ")
       .replace(/[　-鿿＀-￯]+/g, " ")
       .replace(/[#()（）\[\]【】/|*~_+=:;,.!?"'-]+/g, " ")
@@ -397,33 +448,220 @@
     const lb = $("#lightbox"), sc = $("#lbScroll");
     sc.innerHTML = urls.map((u) => `<img loading="lazy" src="${img(u)}" alt="">`).join("");
     lb.hidden = false;
-    requestAnimationFrame(() => sc.children[start]?.scrollIntoView());
+    requestAnimationFrame(() => { lb.classList.add("open"); sc.children[start]?.scrollIntoView(); });
   }
-  $("#lbClose").onclick = () => { $("#lightbox").hidden = true; $("#lbScroll").innerHTML = ""; };
+  $("#lbClose").onclick = () => {
+    const lb = $("#lightbox");
+    lb.classList.remove("open");
+    setTimeout(() => { lb.hidden = true; $("#lbScroll").innerHTML = ""; }, 250);
+  };
+
+  // ---------- Recherche instantanée (suggestions dès quelques lettres) ----------
+  // Construite à partir des ~28 000 titres d'albums de l'index (meta.json, chargé une fois).
+  const ALIASES = {
+    aj: "air jordan", af1: "air force 1", nb: "new balance", lv: "louis vuitton", cdg: "comme des garcons",
+    ch: "chrome hearts", tnf: "the north face", rl: "ralph lauren", ysl: "saint laurent", bape: "bape", ow: "off white",
+    sb: "sb dunk", aj1: "jordan 1", aj3: "jordan 3", aj4: "jordan 4", aj5: "jordan 5", aj6: "jordan 6", aj11: "jordan 11",
+    yzy: "yeezy", mm: "maison margiela", bb: "balenciaga", gg: "gucci", cp: "cp company", stone: "stone island",
+  };
+  const STOP = new Set(["batch", "og", "size", "the", "and", "with", "for", "new", "top", "high", "quality", "version", "best", "promotional", "price", "sale", "pcs", "yuan", "free", "shipping", "deal", "eur", "usd"]);
+  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[€¥￥$]\s?[\d.,]+|[\d.,]+\s?[€¥￥$]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  const sx = { meta: null, loading: null, docs: null, phrases: null, words: null };
+
+  async function loadMeta() {
+    if (sx.meta) return sx.meta;
+    sx.loading ||= fetch("/index/meta.json").then((r) => { if (!r.ok) throw new Error(t("indexNotReady")); return r.json(); }).then((m) => (sx.meta = m));
+    return sx.loading;
+  }
+
+  async function buildSearchIndex() {
+    if (sx.docs) return;
+    const meta = await loadMeta();
+    const docs = new Array(meta.items.length);
+    const counts = new Map();
+    const bump = (p) => counts.set(p, (counts.get(p) || 0) + 1);
+    meta.items.forEach((it, i) => {
+      const n = norm(it[2]);
+      docs[i] = " " + n + " ";
+      const w = n.split(" ").filter((x) => x.length > 1 || /\d/.test(x));
+      const seen = new Set();
+      for (let a = 0; a < w.length; a++) {
+        if (/^\d/.test(w[a]) || STOP.has(w[a]) || w[a].length < 2) continue;
+        for (let len = 1; len <= 3 && a + len <= w.length; len++) {
+          const parts = w.slice(a, a + len);
+          if (len > 1 && STOP.has(parts[len - 1])) break;
+          const p = parts.join(" ");
+          if (!seen.has(p)) { seen.add(p); bump(p); }
+        }
+      }
+    });
+    sx.docs = docs;
+    sx.phrases = [...counts].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]);
+    sx.words = sx.phrases.filter(([p]) => !p.includes(" ")).map(([p]) => p);
+  }
+
+  // distance d'édition ≤ 1 (une faute de frappe)
+  function near1(a, b) {
+    if (Math.abs(a.length - b.length) > 1) return false;
+    let i = 0, j = 0, d = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++d > 1) return false;
+      if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+    }
+    return d + (a.length - i) + (b.length - j) <= 1;
+  }
+
+  function suggest(qRaw) {
+    let q = norm(qRaw);
+    if (q.length < 2 || !sx.phrases) return { list: [], fixed: null };
+    const toks = q.split(" ");
+    const exp = ALIASES[toks[0]];
+    const out = [];
+    const push = (p) => { if (!out.includes(p) && out.length < 8 && !/\bfuck|\bshit|\bbitch/.test(p)) out.push(p); };
+    if (exp && toks.length === 1) push(exp);
+    const withAlias = exp ? [exp, ...toks.slice(1)].join(" ") : q;
+    for (const qq of new Set([q, withAlias])) {
+      for (const [p] of sx.phrases) { if (p.startsWith(qq)) push(p); if (out.length >= 8) break; }
+    }
+    if (out.length < 8) {
+      const last = toks[toks.length - 1], head = toks.slice(0, -1);
+      for (const [p] of sx.phrases) {
+        const pw = p.split(" ");
+        if (pw.some((w) => w.startsWith(last)) && head.every((h) => pw.includes(h))) push(p);
+        if (out.length >= 8) break;
+      }
+    }
+    let fixed = null;
+    if (out.length < 3) {
+      // correction de fautes : remplace les mots inconnus par le mot le plus fréquent à 1 lettre près
+      const fixedToks = toks.map((w) => (w.length >= 4 && !sx.words.some((x) => x.startsWith(w)) ? sx.words.find((x) => near1(w, x)) || w : w));
+      const f = fixedToks.join(" ");
+      if (f !== q) {
+        for (const [p] of sx.phrases) { if (p.startsWith(f)) push(p); if (out.length >= 8) break; }
+        fixed = out.find((p) => p.startsWith(f)) || f;
+        if (!out.some((p) => p.startsWith(f))) out.unshift(f);
+      }
+    }
+    return { list: out.slice(0, 8), fixed };
+  }
+
+  // Albums de l'index dont le titre contient tous les mots tapés (le dernier en début de mot)
+  function instantResults(qRaw, limit = 24, fixed = null) {
+    const q = norm(qRaw);
+    if (q.length < 2 || !sx.docs) return { total: 0, list: [] };
+    const base = q.split(" ");
+    const variants = [base];
+    if (ALIASES[base[0]]) variants.push([...ALIASES[base[0]].split(" "), ...base.slice(1)]);
+    if (fixed) variants.push(fixed.split(" "));
+    const meta = sx.meta;
+    const hits = [];
+    for (let i = 0; i < sx.docs.length; i++) {
+      const d = sx.docs[i];
+      let best = -1;
+      for (const toks of variants) {
+        let ok = true, exact = 0;
+        for (let k = 0; k < toks.length; k++) {
+          const tk = toks[k];
+          if (d.includes(" " + tk + " ")) { exact++; continue; }
+          if (k === toks.length - 1 && d.includes(" " + tk)) continue;
+          ok = false; break;
+        }
+        if (ok && exact > best) best = exact;
+      }
+      if (best >= 0) hits.push([i, best]);
+    }
+    const fav = (i) => (favs.has(meta.stores[meta.items[i][0]]) ? 1 : 0);
+    hits.sort((a, b) => b[1] - a[1] || fav(b[0]) - fav(a[0]));
+    // varie les vendeurs : pas plus de 4 albums du même vendeur dans le haut de liste
+    const per = {}, list = [];
+    for (const [i] of hits) {
+      const it = meta.items[i], s = meta.stores[it[0]];
+      if ((per[s] = (per[s] || 0) + 1) > 4) continue;
+      list.push({ s, a: { id: it[1], title: it[2], cover: "https://photo.yupoo.com/" + it[3], count: it[4] } });
+      if (list.length >= limit) break;
+    }
+    return { total: hits.length, list };
+  }
 
   // ---------- Écran : recherche sur tous les vendeurs ----------
   let lastSearch = { q: "", results: [], errors: [], done: 0, filter: null, extra: [], extraState: "" };
 
   function viewSearch(q0) {
-    header("Recherche", { large: true });
+    header(t("searchTitle"), { large: true });
     view.innerHTML = `
-      ${bigTitle("Recherche", `Chez tes ${stores.length} vendeurs à la fois`)}
-      <form class="searchbar" id="f">
-        ${field(`id="q" type="search" placeholder="jordan 4, stussy hoodie…" autocomplete="off" enterkeyhint="search" value="${esc(q0 || lastSearch.q)}"`)}
+      ${bigTitle(t("searchTitle"), esc(t("searchSub", { n: stores.length })))}
+      <form class="searchbar sticky" id="f">
+        ${field(`id="q" type="search" placeholder="${esc(t("searchPh"))}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" value="${esc(q0 || lastSearch.q)}"`)}
       </form>
+      <div id="sugg"></div>
       <div id="out"></div>`;
+    const input = $("#q");
+    buildSearchIndex().then(() => { if (input === $("#q") && document.activeElement === input && input.value) onType(); }).catch(() => {});
+    let typed = false;
+    const onType = () => {
+      typed = true;
+      const v = input.value;
+      if (norm(v).length < 2) { $("#sugg").innerHTML = ""; if (!lastSearch.q) showSearchEmpty(); return; }
+      renderInstant(v);
+    };
+    let deb;
+    input.oninput = () => { clearTimeout(deb); deb = setTimeout(onType, 90); };
+    input.onfocus = () => { if (input.value && typed) onType(); };
     $("#f").onsubmit = (e) => {
       e.preventDefault();
-      const q = $("#q").value.trim();
+      const q = input.value.trim();
       if (!q) return;
-      $("#q").blur();
-      history.replaceState(null, "", `#/search?q=${encodeURIComponent(q)}`);
-      runSearch(q);
+      startLive(q);
     };
-    if (q0 && q0 !== lastSearch.q) runSearch(q0);
+    if (q0 && q0 !== lastSearch.q) startLive(q0);
     else if (lastSearch.q) renderResults();
-    else $("#out").innerHTML = `<div class="empty-state"><div class="big">🔎</div><b>Trouve un article partout</b>Les titres Yupoo sont souvent en anglais : « hoodie », « jacket », « sneakers »…</div>
-      <div class="chips" style="justify-content:center;flex-wrap:wrap">${["jordan 4", "hoodie", "jacket", "cap", "bag", "jersey"].map((w) => `<a class="chip" href="#/search?q=${encodeURIComponent(w)}">${w}</a>`).join("")}</div>`;
+    else showSearchEmpty();
+    if (!q0 && !lastSearch.q) setTimeout(() => input.focus({ preventScroll: true }), 350);
+  }
+
+  function showSearchEmpty() {
+    $("#out").innerHTML = `<div class="empty-state fade-in"><div class="big">🔎</div><b>${esc(t("searchEmptyT"))}</b>${esc(t("searchEmptyS"))}</div>
+      <div class="chips wrap center-chips">${["jordan 4", "hoodie", "air force 1", "stussy", "chrome hearts", "jersey"].map((w) => `<a class="chip" href="#/search?q=${encodeURIComponent(w)}">${w}</a>`).join("")}</div>`;
+  }
+
+  function startLive(q) {
+    $("#q").value = q;
+    $("#q").blur();
+    $("#sugg").innerHTML = "";
+    history.replaceState(null, "", `#/search?q=${encodeURIComponent(q)}`);
+    runSearch(q);
+  }
+
+  function hl(p, q) {
+    const i = p.indexOf(q);
+    return i < 0 ? esc(p) : `${esc(p.slice(0, i))}<b>${esc(p.slice(i, i + q.length))}</b>${esc(p.slice(i + q.length))}`;
+  }
+
+  function renderInstant(v) {
+    const sug = $("#sugg");
+    if (!sx.docs) { sug.innerHTML = `<div class="sugg-box"><div class="spinner small"></div></div>`; return; }
+    const q = norm(v);
+    const { list, fixed } = suggest(v);
+    const inst = instantResults(v, 24, fixed);
+    sug.innerHTML = `
+      ${list.length ? `<div class="sugg-box pop-in">
+        ${fixed ? `<div class="sugg-fix">${esc(t("didYouMean"))} <b>${esc(fixed)}</b> ?</div>` : ""}
+        ${list.map((p) => `<button class="sugg" data-s="${esc(p)}">${ICON.search}<span>${hl(p, q)}</span><i class="go">${ICON.arrowUp}</i></button>`).join("")}
+      </div>` : ""}
+      <button class="live-btn" data-live="${esc(v.trim())}">${ICON.search}<span>${esc(t("liveSearch", { q: v.trim() }))}</span></button>
+      ${inst.list.length ? `<div class="section-title" style="margin-top:18px">${esc(t("instant"))} <small>${esc(t("instantSub", { n: inst.total }))}</small></div>
+        <div class="grid">${inst.list.map((r) => itemCard(r.a, r.s, true)).join("")}</div>` : ""}`;
+    $("#out").innerHTML = "";
+    sug.querySelectorAll(".sugg").forEach((b) => (b.onclick = () => startLive(b.dataset.s)));
+    sug.querySelectorAll(".sugg .go").forEach((g) => (g.onclick = (e) => {
+      e.stopPropagation();
+      const inp = $("#q"); inp.value = g.closest(".sugg").dataset.s + " "; inp.focus(); renderInstant(inp.value);
+    }));
+    const lb = sug.querySelector(".live-btn");
+    if (lb) lb.onclick = () => startLive(lb.dataset.live);
   }
 
   async function runSearch(q) {
@@ -470,7 +708,7 @@
   function renderResults() {
     const out = $("#out");
     if (!out) return;
-    const { q, results, errors, done, filter } = lastSearch;
+    const { results, errors, done, filter } = lastSearch;
     const total = results.reduce((n, r) => n + r.albums.length, 0);
     const finished = done >= stores.length;
     const shown = results.filter((r) => !filter || r.s === filter);
@@ -479,47 +717,48 @@
     for (let i = 0; shown.some((r) => i < r.albums.length); i++) shown.forEach((r) => r.albums[i] && mixed.push([r.albums[i], r.s]));
     out.innerHTML = `
       ${finished ? "" : `<div class="progress"><i style="width:${(done / stores.length) * 100}%"></i></div>`}
-      <p class="muted" style="margin:0 4px 10px">${finished ? "" : `Recherche… ${done}/${stores.length} vendeurs · `}<b>${total}</b> albums chez ${results.length} vendeurs
-        ${finished && errors.length ? `<br><span class="err">${errors.length} vendeur(s) n'ont pas répondu</span>` : ""}</p>
+      <p class="muted" style="margin:0 4px 10px">${finished ? "" : esc(t("searching", { d: done, n: stores.length }))}${t("albumsAt", { t: total, n: results.length })}
+        ${finished && errors.length ? `<br><span class="err">${esc(t("noReply", { n: errors.length }))}</span>` : ""}</p>
       ${results.length > 1 ? `<div class="chips">
-        <button class="chip ${filter ? "" : "on"}" data-f="">Tous</button>
+        <button class="chip ${filter ? "" : "on"}" data-f="">${esc(t("all"))}</button>
         ${results.slice().sort((a, b) => b.albums.length - a.albums.length).map((r) => `<button class="chip ${filter === r.s ? "on" : ""}" data-f="${esc(r.s)}">${esc(r.s)} · ${r.albums.length}${r.pages > 1 ? "+" : ""}</button>`).join("")}
       </div>` : ""}
+      ${!total && !finished ? skeleton(4) : ""}
       <div class="grid">${mixed.map(([a, s]) => itemCard(a, s, true)).join("")}</div>
-      ${filter && results.find((r) => r.s === filter)?.pages > 1 ? `<a class="btn ghost block" href="#/s/${esc(filter)}">Plus de résultats chez ${esc(filter)}</a>` : ""}
-      ${finished && !total ? `<div class="empty-state"><div class="big">🤷</div><b>Rien trouvé chez tes vendeurs</b>Regarde les autres vendeurs ci-dessous, essaie un autre mot (souvent en anglais) ou la recherche par photo.</div>` : ""}
+      ${filter && results.find((r) => r.s === filter)?.pages > 1 ? `<a class="btn ghost block" href="#/s/${esc(filter)}">${esc(t("moreAt", { s: filter }))}</a>` : ""}
+      ${finished && !total ? `<div class="empty-state"><div class="big">🤷</div><b>${esc(t("nothingT"))}</b>${esc(t("nothingS"))}</div>` : ""}
       ${filter ? "" : renderExtra()}`;
     out.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { lastSearch.filter = c.dataset.f || null; renderResults(); }));
     out.querySelectorAll("[data-addstore]").forEach((b) => (b.onclick = (e) => {
       e.preventDefault();
       const st = b.dataset.addstore;
       if (!stores.includes(st)) { stores.push(st); saveStores(); }
-      b.textContent = "✓ Ajouté"; b.disabled = true;
-      toast(`${st} ajouté à tes vendeurs`);
+      b.textContent = t("added"); b.disabled = true;
+      toast(t("addedStore", { s: st }));
     }));
   }
 
   function renderExtra() {
     const { extra, extraState } = lastSearch;
-    if (!extra.length && extraState !== "loading") return extraState === "done" ? "" : "";
-    return `<div class="section-title" style="margin-top:26px">Autres vendeurs Yupoo <small>pas dans ta liste</small></div>
+    if (!extra.length && extraState !== "loading") return "";
+    return `<div class="section-title" style="margin-top:26px">${esc(t("others"))} <small>${esc(t("othersSub"))}</small></div>
       ${extra.map((r) => `<div class="other">
-        <div class="other-head"><i class="lg"></i><a href="#/s/${esc(r.s)}"><b>${esc(r.s)}</b><small>${r.albums.length}${r.pages > 1 ? "+" : ""} albums trouvés</small></a>
-          ${stores.includes(r.s) ? `<span class="muted">✓ Dans ta liste</span>` : `<button class="btn small ghost" data-addstore="${esc(r.s)}">+ Ajouter</button>`}</div>
+        <div class="other-head"><i class="lg"></i><a href="#/s/${esc(r.s)}"><b>${esc(r.s)}</b><small>${esc(t("albumsFound", { n: r.albums.length + (r.pages > 1 ? "+" : "") }))}</small></a>
+          ${stores.includes(r.s) ? `<span class="muted">${esc(t("inList"))}</span>` : `<button class="btn small ghost" data-addstore="${esc(r.s)}">${esc(t("add"))}</button>`}</div>
         <div class="hscroll">${r.albums.slice(0, 8).map((a) => itemCard(a, r.s)).join("")}</div>
       </div>`).join("")}
-      ${extraState === "loading" ? `<div class="spinner"></div><p class="center muted" style="padding-top:0">Recherche d'autres vendeurs…</p>` : ""}`;
+      ${extraState === "loading" ? `<div class="spinner"></div><p class="center muted" style="padding-top:0">${esc(t("findingOthers"))}</p>` : ""}`;
   }
 
   // ---------- Recherche visuelle (dans l'iPhone) ----------
   // Le modèle DINOv2 calcule une « empreinte » de la photo ; on la compare aux empreintes
   // des couvertures d'albums de tous les vendeurs (index construit chaque nuit par GitHub).
   const VIS = { lib: "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2", model: "Xenova/dinov2-small", dim: 384 };
-  const ps = { T: null, proc: null, model: null, index: null, loading: null };
+  const ps = { T: null, proc: null, model: null, index: null };
 
   async function loadModel(onStatus) {
     if (ps.model) return;
-    onStatus("Chargement du moteur photo (≈ 25 Mo, seulement la 1re fois)…");
+    onStatus(t("loadingModel"));
     const T = await import(VIS.lib);
     T.env.allowLocalModels = false;
     T.env.remoteHost = location.origin + "/models/"; // modèle relayé par notre serveur
@@ -530,12 +769,11 @@
 
   async function loadIndex(onStatus) {
     if (ps.index) return ps.index;
-    onStatus("Chargement de l'index des vendeurs…");
-    const [mr, vr] = await Promise.all([fetch("/index/meta.json"), fetch("/index/vecs.bin")]);
-    if (!mr.ok || !vr.ok) throw new Error("L'index n'est pas encore prêt (il se construit chaque nuit). Réessaie plus tard.");
-    const meta = await mr.json();
+    onStatus(t("loadingIndex"));
+    const [meta, vr] = await Promise.all([loadMeta(), fetch("/index/vecs.bin")]);
+    if (!vr.ok) throw new Error(t("indexNotReady"));
     const vecs = new Int8Array(await vr.arrayBuffer());
-    if (meta.model !== VIS.model || meta.dim !== VIS.dim) throw new Error("Index d'une ancienne version, il sera refait cette nuit.");
+    if (meta.model !== VIS.model || meta.dim !== VIS.dim) throw new Error(t("indexOld"));
     const byKey = new Map(meta.items.map((it, i) => [`${meta.stores[it[0]]}:${it[1]}`, i]));
     ps.index = { meta, vecs, byKey };
     return ps.index;
@@ -575,10 +813,10 @@
     return out;
   }
 
-  function renderMatches(el, res, note = "") {
-    const stores = new Set(res.map((r) => r.s)).size;
-    el.innerHTML = `<p class="muted">${note}${res.length} albums ressemblants chez ${stores} vendeurs (du plus au moins ressemblant)</p>
-      <div class="grid">${res.map((r) => itemCard(r.a, r.s, true, r.score)).join("")}</div>`;
+  function renderMatches(el, res) {
+    const n = new Set(res.map((r) => r.s)).size;
+    el.innerHTML = `<p class="muted">${esc(t("similarCount", { n: res.length, s: n }))}</p>
+      <div class="grid stagger">${res.map((r) => itemCard(r.a, r.s, true, r.score)).join("")}</div>`;
   }
 
   const statusHtml = (msg) => `<div class="spinner"></div><p class="center muted" style="padding-top:0">${esc(msg)}</p>`;
@@ -592,9 +830,9 @@
       if (i != null) {
         q = Float32Array.from(ps.index.vecs.subarray(i * VIS.dim, (i + 1) * VIS.dim), (x) => x / 127);
       } else {
-        if (!thumb) throw new Error("Pas de photo dans cet album");
+        if (!thumb) throw new Error(t("noPhotoAlbum"));
         await loadModel(st);
-        st("Analyse de la photo…");
+        st(t("analysing"));
         q = await embedBlob(await (await fetch(img(thumb))).blob());
       }
       renderMatches(el, nearest(q, { excludeStore: s, limit: 30, perStore: 4 }));
@@ -605,35 +843,35 @@
 
   // ---------- Écran : recherche par photo ----------
   function viewPhoto() {
-    header("Photo", { large: true });
+    header(t("photoTitle"), { large: true });
     view.innerHTML = `
-      ${bigTitle("Photo", "Retrouve un article grâce à une image")}
-      <form id="lensForm" method="post" enctype="multipart/form-data" action="https://lens.google.com/v3/upload?hl=fr" target="_blank">
+      ${bigTitle(t("photoTitle"), esc(t("photoSub")))}
+      <form id="lensForm" method="post" enctype="multipart/form-data" action="https://lens.google.com/v3/upload?hl=${lang()}" target="_blank">
         <label class="drop" id="drop">
           <input type="file" name="encoded_image" id="file" accept="image/*" hidden>
-          <div id="prev"><div class="cam">${ICON.cam}</div><b>Prendre ou choisir une photo</b><div class="muted">Capture d'écran, photo d'un vêtement, d'une paire…</div></div>
+          <div id="prev"><div class="cam">${ICON.cam}</div><b>${esc(t("pickPhoto"))}</b><div class="muted">${esc(t("pickPhotoSub"))}</div></div>
         </label>
         <div id="ident"></div>
         <div id="results"></div>
         <div id="actions" hidden>
           <div class="panel" style="margin-top:14px">
-            <h2>Pas trouvé ? Chercher sur tout Internet</h2>
+            <h2>${esc(t("notFoundWeb"))}</h2>
             <button class="btn ghost block" type="submit">Google Lens</button>
             <button class="btn ghost block" type="button" id="bing">Bing</button>
-            <div class="muted" style="margin-top:8px">Dans Lens, ajoute le mot <b>yupoo</b> à la recherche pour ne garder que les albums Yupoo.</div>
+            <div class="muted" style="margin-top:8px">${t("lensTip")}</div>
           </div>
         </div>
       </form>
       <div class="panel" id="howto" style="margin-top:16px">
-        <h2>Comment ça marche</h2>
-        <div class="muted" style="line-height:1.45">L'appli compare ta photo aux albums de tous tes vendeurs et te montre les plus ressemblants, avec un pourcentage de ressemblance. L'index est mis à jour chaque nuit.<br><br>💡 Recadre la photo sur l'article (sans le décor) pour de meilleurs résultats.</div>
+        <h2>${esc(t("howTitle"))}</h2>
+        <div class="muted" style="line-height:1.45">${t("howText")}</div>
       </div>`;
     const file = $("#file");
     file.onchange = async () => {
       const f = file.files[0];
       if (!f) return;
       const url = URL.createObjectURL(f);
-      $("#prev").innerHTML = `<img src="${url}" alt=""><div class="muted" style="margin-top:8px">Touche pour changer de photo</div>`;
+      $("#prev").innerHTML = `<img src="${url}" alt="" class="pop"><div class="muted" style="margin-top:8px">${esc(t("changePhoto"))}</div>`;
       $("#drop").classList.add("has");
       $("#actions").hidden = false;
       $("#howto").hidden = true;
@@ -643,12 +881,12 @@
       let matches = [];
       try {
         await Promise.all([loadModel(st), loadIndex(() => {})]);
-        st("Analyse de la photo…");
+        st(t("analysing"));
         const q = await embedBlob(f);
-        st("Comparaison avec tous les vendeurs…");
+        st(t("comparing"));
         await new Promise((r) => setTimeout(r, 30));
         matches = nearest(q);
-        renderMatches(el, matches, "");
+        renderMatches(el, matches);
       } catch (e) {
         el.innerHTML = `<p class="err" style="margin-top:12px">${esc(e.message)}</p>`;
       }
@@ -683,43 +921,43 @@
   async function identifyPhoto(file, matches, el) {
     const hints = matches.slice(0, 8).map((m) => m.a.title);
     const cands = refCandidates(matches);
-    el.innerHTML = `<div class="panel ident">${statusHtml("Identification de l'article…")}</div>`;
+    el.innerHTML = `<div class="panel ident">${statusHtml(t("identifying"))}</div>`;
     try {
       const image = await toJpegBase64(file, 768);
       const res = await fetch("/api/identify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ image, hints }),
+        body: JSON.stringify({ image, hints, lang: lang() }),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok || d.error) throw new Error(d.error || "Service indisponible");
+      if (!res.ok || d.error) throw new Error(d.error || t("serviceDown"));
       const ref = d.reference;
       const name = [d.marque, d.modele].filter(Boolean).join(" ");
       const facts = [
-        ["Référence", ref], ["Coloris", d.coloris], ["Catégorie", d.categorie], ["Collab", d.collab],
-        ["Année", d.annee], ["Origine de la marque", d.pays_marque], ["Prix officiel", d.prix_officiel],
+        ["fRef", ref], ["fColor", d.coloris], ["fCat", d.categorie], ["fCollab", d.collab],
+        ["fYear", d.annee], ["fOrigin", d.pays_marque], ["fPrice", d.prix_officiel],
       ].filter(([, v]) => v && String(v).toLowerCase() !== "null");
-      const conf = { haute: ["Sûr", "ok"], moyenne: ["Probable", "mid"], faible: ["Incertain", "low"] }[String(d.confiance).toLowerCase()] || ["Estimation", "mid"];
+      const conf = { haute: ["confHigh", "ok"], moyenne: ["confMid", "mid"], faible: ["confLow", "low"] }[String(d.confiance).toLowerCase()] || ["confEst", "mid"];
       const q = ref || name;
-      el.innerHTML = `<div class="panel ident fade-in">
-        <div class="ident-top"><span class="ai">✨ Identifié par IA</span><span class="conf ${conf[1]}">${conf[0]}</span></div>
+      el.innerHTML = `<div class="panel ident rise">
+        <div class="ident-top"><span class="ai">${esc(t("identifiedAI"))}</span><span class="conf ${conf[1]}">${esc(t(conf[0]))}</span></div>
         ${d.marque ? `<div class="brand">${esc(d.marque)}</div>` : ""}
-        <h3>${esc(d.modele || name || "Article")}</h3>
-        <div class="facts">${facts.map(([k, v]) => `<div class="fact"${k === "Référence" ? ` id="refCopy"` : ""}><span>${k}</span><b>${esc(v)}${k === "Référence" ? " ⧉" : ""}</b></div>`).join("")}</div>
+        <h3>${esc(d.modele || name || t("article"))}</h3>
+        <div class="facts">${facts.map(([k, v]) => `<div class="fact"${k === "fRef" ? ` id="refCopy"` : ""}><span>${esc(t(k))}</span><b>${esc(v)}${k === "fRef" ? " ⧉" : ""}</b></div>`).join("")}</div>
         ${d.explication ? `<p class="muted" style="margin:10px 0 0">${esc(d.explication)}</p>` : ""}
-        ${cands.length ? `<div class="cands"><div class="muted" style="margin:14px 0 6px">Références vues dans les albums ressemblants :</div>
+        ${cands.length ? `<div class="cands"><div class="muted" style="margin:14px 0 6px">${esc(t("refsSeen"))}</div>
           ${cands.map(([r, m]) => `<a class="cand${r === String(ref).toUpperCase() ? " on" : ""}" href="#/s/${esc(m.s)}/a/${esc(m.a.id)}">
             <img loading="lazy" src="${img(m.a.cover)}" alt=""><span><b>${esc(r)}</b><small>${esc(m.a.title)}</small></span>${ICON.chevron}</a>`).join("")}</div>` : ""}
         <div class="row" style="margin-top:12px">
-          <a class="btn small" href="#/search?q=${encodeURIComponent(q)}">Chercher chez mes vendeurs</a>
+          <a class="btn small" href="#/search?q=${encodeURIComponent(q)}">${esc(t("searchMyStores"))}</a>
           <a class="btn small ghost" href="https://www.google.com/search?q=${encodeURIComponent([name, ref].filter(Boolean).join(" "))}" target="_blank" rel="noopener">Google</a>
         </div>
-        <p class="muted" style="margin:10px 0 0;font-size:12px">L'IA peut se tromper : vérifie la référence avant d'acheter.</p>
+        <p class="muted" style="margin:10px 0 0;font-size:12px">${esc(t("aiWarn"))}</p>
       </div>`;
       const rc = $("#refCopy");
       if (rc) rc.onclick = () => copy(ref);
     } catch (e) {
-      el.innerHTML = `<div class="panel ident"><p class="muted" style="margin:0">Identification indisponible pour le moment (${esc(e.message)}).</p></div>`;
+      el.innerHTML = `<div class="panel ident"><p class="muted" style="margin:0">${esc(t("identUnavailable", { e: e.message }))}</p></div>`;
     }
   }
 
@@ -740,47 +978,47 @@
 
   // ---------- Écran : modifier la liste ----------
   function viewEdit() {
-    header("Modifier", { back: true });
+    header(t("myStores"), { back: true });
     const bad = stores.filter((s) => status[s] === "bad").length;
     view.innerHTML = `
-      ${bigTitle("Mes vendeurs", `${stores.length} vendeurs · <span class="dot ok"></span> fonctionne · <span class="dot bad"></span> introuvable`)}
+      ${bigTitle(t("myStores"), t("storesSub", { n: stores.length }))}
       <form class="searchbar" id="addf">
-        <label class="field"><input id="add" placeholder="Lien ou nom Yupoo à ajouter" autocomplete="off" autocapitalize="off"></label>
-        <button class="btn small">Ajouter</button>
+        <label class="field"><input id="add" placeholder="${esc(t("addPh"))}" autocomplete="off" autocapitalize="off"></label>
+        <button class="btn small">${esc(t("addBtn"))}</button>
       </form>
       <div class="row" style="margin-bottom:16px">
-        <button class="btn small ghost" id="check">Tester tous les vendeurs</button>
-        ${bad ? `<button class="btn small ghost" id="rmbad">Retirer les ${bad} en erreur</button>` : ""}
+        <button class="btn small ghost" id="check">${esc(t("testAll"))}</button>
+        ${bad ? `<button class="btn small ghost" id="rmbad">${esc(t("removeBad", { n: bad }))}</button>` : ""}
       </div>
       <div class="list">${stores.map((s, i) => `
         <div class="er"><i class="lg"><i class="dot ${status[s] || ""}"></i></i><span>${esc(s)}</span>
-          <button data-ren="${i}">Renommer</button><button class="del" data-del="${i}">Retirer</button></div>`).join("")}</div>
-      <button class="btn ghost block" id="reset">Remettre la liste de départ</button>`;
+          <button data-ren="${i}">${esc(t("rename"))}</button><button class="del" data-del="${i}">${esc(t("remove"))}</button></div>`).join("")}</div>
+      <button class="btn ghost block" id="reset">${esc(t("resetList"))}</button>`;
     $("#addf").onsubmit = (e) => {
       e.preventDefault();
       const s = normalizeStore($("#add").value);
-      if (!s) return toast("Nom invalide");
-      if (stores.includes(s)) return toast("Déjà dans la liste");
-      stores.push(s); saveStores(); viewEdit(); toast(`${s} ajouté`);
+      if (!s) return toast(t("invalidName"));
+      if (stores.includes(s)) return toast(t("alreadyIn"));
+      stores.push(s); saveStores(); viewEdit(); toast(t("storeAdded", { s }));
     };
     view.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => {
       const s = stores[b.dataset.del];
-      if (confirm(`Retirer ${s} ?`)) { stores.splice(b.dataset.del, 1); saveStores(); viewEdit(); }
+      if (confirm(t("removeQ", { s }))) { stores.splice(b.dataset.del, 1); saveStores(); viewEdit(); }
     }));
     view.querySelectorAll("[data-ren]").forEach((b) => (b.onclick = () => {
       const old = stores[b.dataset.ren];
-      const s = normalizeStore(prompt("Nouveau nom ou lien Yupoo :", old) || "");
+      const s = normalizeStore(prompt(t("renameQ"), old) || "");
       if (s && s !== old) { stores[b.dataset.ren] = s; delete status[old]; saveStores(); viewEdit(); }
     }));
     $("#reset").onclick = () => {
-      if (confirm("Remettre la liste de départ ?")) { stores = window.DEFAULT_STORES.slice(); saveStores(); viewEdit(); }
+      if (confirm(t("resetQ"))) { stores = window.DEFAULT_STORES.slice(); saveStores(); viewEdit(); }
     };
     const rm = $("#rmbad");
     if (rm) rm.onclick = () => {
-      if (confirm("Retirer les vendeurs en erreur ?")) { stores = stores.filter((s) => status[s] !== "bad"); saveStores(); viewEdit(); }
+      if (confirm(t("removeBadQ"))) { stores = stores.filter((s) => status[s] !== "bad"); saveStores(); viewEdit(); }
     };
     $("#check").onclick = async (e) => {
-      e.target.disabled = true; e.target.textContent = "Test en cours…";
+      e.target.disabled = true; e.target.textContent = t("testing");
       const signal = newCtrl();
       await pool(stores, 4, async (s) => {
         try { await api("albums", { s }, signal); setStatus(s, "ok"); }
@@ -790,29 +1028,116 @@
     };
   }
 
-  // ---------- Navigation ----------
-  function route() {
+  // ---------- Écran : réglages ----------
+  function viewSettings() {
+    header(t("tabSettings"), { large: true });
+    const seg = (id, val, label) => `<button class="seg-b ${settings.theme === val ? "on" : ""}" data-theme="${val}">${label}</button>`;
+    view.innerHTML = `
+      ${bigTitle(t("tabSettings"), esc(t("settingsSub")))}
+      <div class="group-title">${esc(t("appearance"))}</div>
+      <div class="list pad">
+        <div class="seg" style="--n:3;--i:${["auto", "light", "dark"].indexOf(settings.theme)}"><i class="seg-pill"></i>
+          ${seg("auto", "auto", esc(t("themeAuto")))}${seg("light", "light", esc(t("themeLight")))}${seg("dark", "dark", esc(t("themeDark")))}
+        </div>
+        <div class="previews">
+          <div class="pv light ${settings.theme === "light" ? "on" : ""}" data-theme="light"><i></i><i></i><i></i></div>
+          <div class="pv dark ${settings.theme === "dark" ? "on" : ""}" data-theme="dark"><i></i><i></i><i></i></div>
+        </div>
+      </div>
+      <div class="group-title">${esc(t("color"))}</div>
+      <div class="list pad"><div class="swatches">${Object.entries(ACCENTS).map(([k, v]) => `
+        <button class="sw ${settings.accent === k ? "on" : ""}" data-accent="${k}" aria-label="${esc(t("c" + k[0].toUpperCase() + k.slice(1)))}">
+          <i style="background:${v.g}"></i><span>${esc(t("c" + k[0].toUpperCase() + k.slice(1)))}</span></button>`).join("")}</div></div>
+      <div class="group-title">${esc(t("language"))}</div>
+      <div class="list">${LANGS.map((l) => `<button class="row-item" data-lang="${l}"><span class="flag">${{ fr: "🇫🇷", en: "🇬🇧", es: "🇪🇸" }[l] || "🌐"}</span><span>${esc(window.I18N[l].langName)}</span>${lang() === l ? `<i class="ck">${ICON.check}</i>` : ""}</button>`).join("")}</div>
+      <div class="group-title">${esc(t("account"))}</div>
+      <div class="list">
+        <a class="row-item" href="#/agent"><span class="ri-ic" style="background:#ff9f0a">🛒</span><span>${esc(t("myAgent"))}<small>${agent ? esc(agent.name) : esc(t("notConfigured"))}</small></span>${ICON.chevron}</a>
+        <a class="row-item" href="#/edit"><span class="ri-ic" style="background:#34c759">🛍️</span><span>${esc(t("myStores"))}<small>${stores.length}</small></span>${ICON.chevron}</a>
+      </div>
+      <div class="group-title">${esc(t("about"))}</div>
+      <div class="list">
+        <div class="row-item static"><span>${esc(t("indexUpdated"))}</span><small id="idxDate">…</small></div>
+        <div class="row-item static"><span>${esc(t("indexAlbums"))}</span><small id="idxCount">…</small></div>
+        <div class="row-item static"><span>${esc(t("version"))}</span><small>${APP_VERSION}</small></div>
+      </div>`;
+    view.querySelectorAll("[data-theme]").forEach((b) => (b.onclick = () => {
+      settings.theme = b.dataset.theme; saveSettings();
+      const segEl = view.querySelector(".seg");
+      segEl.style.setProperty("--i", ["auto", "light", "dark"].indexOf(settings.theme));
+      view.querySelectorAll(".seg-b").forEach((x) => x.classList.toggle("on", x.dataset.theme === settings.theme));
+      view.querySelectorAll(".pv").forEach((x) => x.classList.toggle("on", x.dataset.theme === settings.theme));
+    }));
+    view.querySelectorAll("[data-accent]").forEach((b) => (b.onclick = () => {
+      settings.accent = b.dataset.accent; saveSettings();
+      view.querySelectorAll(".sw").forEach((x) => x.classList.toggle("on", x === b));
+    }));
+    view.querySelectorAll("[data-lang]").forEach((b) => (b.onclick = () => {
+      settings.lang = b.dataset.lang; saveSettings(); route(true);
+    }));
+    loadMeta().then((m) => {
+      const d = $("#idxDate"), c = $("#idxCount");
+      if (d) d.textContent = new Date(m.updated).toLocaleString(lang(), { dateStyle: "medium", timeStyle: "short" });
+      if (c) c.textContent = m.items.length.toLocaleString(lang());
+    }).catch(() => { const d = $("#idxDate"); if (d) d.textContent = "—"; });
+  }
+
+  // ---------- Navigation avec transitions animées ----------
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let currentRoute = "";
+  let prevDepth = null, prevTab = null;
+
+  function parseRoute() {
     const h = location.hash.slice(1) || "/";
     const [path, qs] = h.split("?");
-    const params = new URLSearchParams(qs || "");
     const parts = path.split("/").filter(Boolean);
-    let tab = "stores";
-    window.scrollTo(0, 0);
-    onScroll();
-    if (parts[0] === "s" && parts[1]) {
-      parts[2] === "a" && parts[3] ? viewAlbum(parts[1], parts[3]) : viewStore(parts[1]);
-    } else if (parts[0] === "search") { tab = "search"; viewSearch(params.get("q") || ""); }
-    else if (parts[0] === "photo") { tab = "photo"; viewPhoto(); }
-    else if (parts[0] === "edit") viewEdit();
-    else if (parts[0] === "agent") viewAgent();
-    else viewStores();
-    document.querySelectorAll(".tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
+    const params = new URLSearchParams(qs || "");
+    if (parts[0] === "s" && parts[1]) return parts[2] === "a" && parts[3]
+      ? { name: "album", tab: "stores", depth: 2, run: () => viewAlbum(parts[1], parts[3]) }
+      : { name: "store", tab: "stores", depth: 1, run: () => viewStore(parts[1]) };
+    if (parts[0] === "search") return { name: "search", tab: "search", depth: 0, run: () => viewSearch(params.get("q") || "") };
+    if (parts[0] === "photo") return { name: "photo", tab: "photo", depth: 0, run: viewPhoto };
+    if (parts[0] === "settings") return { name: "settings", tab: "settings", depth: 0, run: viewSettings };
+    if (parts[0] === "edit") return { name: "edit", tab: "settings", depth: 1, run: viewEdit };
+    if (parts[0] === "agent") return { name: "agent", tab: "settings", depth: 1, run: viewAgent };
+    return { name: "stores", tab: "stores", depth: 0, run: viewStores };
+  }
+
+  function route(noAnim) {
+    const r = parseRoute();
+    let dir = "none";
+    if (prevDepth !== null && !noAnim) dir = r.depth > prevDepth ? "forward" : r.depth < prevDepth ? "back" : "tab";
+    if (dir === "tab" && r.tab === prevTab && r.depth > 0) dir = "forward";
+    prevDepth = r.depth; prevTab = r.tab;
+    const render = () => {
+      currentRoute = r.name;
+      window.scrollTo(0, 0);
+      onScroll();
+      setTab(r.tab);
+      r.run();
+    };
+    if (dir !== "none" && !reduceMotion && document.startViewTransition) {
+      document.documentElement.dataset.nav = dir;
+      document.startViewTransition(render);
+    } else {
+      render();
+      if (dir !== "none" && !reduceMotion) {
+        view.classList.remove("enter-forward", "enter-back", "enter-tab");
+        void view.offsetWidth;
+        view.classList.add("enter-" + dir);
+      }
+    }
   }
   const onScroll = () => document.body.classList.toggle("scrolled", window.scrollY > 30);
   window.addEventListener("scroll", onScroll, { passive: true });
   $("#back").onclick = () => (history.length > 1 ? history.back() : (location.hash = "#/"));
-  window.addEventListener("hashchange", route);
+  window.addEventListener("hashchange", () => route());
+  applySettings();
   route();
+
+  // prépare la recherche instantanée en arrière-plan
+  const warm = () => buildSearchIndex().catch(() => {});
+  if (window.requestIdleCallback) requestIdleCallback(warm, { timeout: 4000 }); else setTimeout(warm, 2500);
 
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 })();

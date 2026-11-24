@@ -211,8 +211,9 @@ function parseJsonLoose(text) {
   try { return JSON.parse(m[0]); } catch { return null; }
 }
 
-async function runVision(env, model, b64, hints) {
-  const text = `${IDENTIFY_PROMPT}\n\nINDICES (titres d'albums ressemblants) :\n${hints.length ? hints.map((h) => "- " + h).join("\n") : "(aucun)"}`;
+async function runVision(env, model, b64, hints, lang = "fr") {
+  const langName = { fr: "français", en: "anglais (English)", es: "espagnol (español)" }[lang] || "français";
+  const text = `${IDENTIFY_PROMPT}\nIMPORTANT : écris toutes les VALEURS en ${langName} (les clés JSON restent identiques ; "confiance" reste "haute", "moyenne" ou "faible").\n\nINDICES (titres d'albums ressemblants) :\n${hints.length ? hints.map((h) => "- " + h).join("\n") : "(aucun)"}`;
   const input = {
     messages: [
       { role: "user", content: [
@@ -245,7 +246,7 @@ async function identify(request, env) {
   const errors = [];
   for (const model of VISION_MODELS) {
     try {
-      const out = await runVision(env, model, b64, hints);
+      const out = await runVision(env, model, b64, hints, ["fr", "en", "es"].includes(body.lang) ? body.lang : "fr");
       const data = parseJsonLoose(out?.response ?? out?.result?.response ?? out);
       if (data && (data.marque || data.modele)) {
         // si la référence vient des indices alors que ceux-ci en proposent plusieurs, on ne se dit pas « sûr »

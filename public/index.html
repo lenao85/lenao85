@@ -4,8 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Yupoo Finder</title>
-  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f4f3fa">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -13,30 +12,25 @@
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/style.css">
+  <script>
+    // applique le thème choisi avant l'affichage (évite un flash de la mauvaise couleur)
+    try { var st = JSON.parse(localStorage.getItem("settings") || "{}"); if (st.theme && st.theme !== "auto") document.documentElement.dataset.theme = st.theme; } catch (e) {}
+  </script>
 </head>
 <body class="large">
+  <div class="backdrop" aria-hidden="true"><i></i><i></i><i></i></div>
   <header class="top">
     <button class="back" id="back" hidden aria-label="Retour">
       <svg viewBox="0 0 13 21" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2 3 10.5 11 19"/></svg>
-      <span>Retour</span>
+      <span id="backLbl">Retour</span>
     </button>
-    <h1 id="title">Vendeurs</h1>
+    <h1 id="title"></h1>
     <span class="top-right" id="topRight"></span>
   </header>
 
   <main id="view"></main>
 
-  <nav class="tabs">
-    <a href="#/" data-tab="stores">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>
-      Vendeurs</a>
-    <a href="#/search" data-tab="search">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
-      Recherche</a>
-    <a href="#/photo" data-tab="photo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3.5 8.5a2 2 0 0 1 2-2h2.2l1.6-2.2h5.4l1.6 2.2h2.2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.8"/></svg>
-      Photo</a>
-  </nav>
+  <nav class="tabs" id="tabs"></nav>
 
   <div class="lightbox" id="lightbox" hidden>
     <button class="lb-close" id="lbClose" aria-label="Fermer">✕</button>
@@ -45,6 +39,7 @@
   <div class="toast" id="toast" hidden></div>
 
   <script src="/stores.js"></script>
+  <script src="/i18n.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
