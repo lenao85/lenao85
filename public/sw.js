@@ -1,5 +1,5 @@
 // Service worker : garde l'appli disponible hors connexion et met en cache les images.
-const VERSION = "v14";
+const VERSION = "v15";
 const SHELL = ["/", "/app.js", "/i18n.js", "/zh.js", "/style.css", "/stores.js", "/manifest.webmanifest", "/icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

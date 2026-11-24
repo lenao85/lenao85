@@ -14,7 +14,8 @@ window.ZH = {
   "紫": ["violet", "purple", "morado"], "橙": ["orange", "orange", "naranja"], "棕": ["marron", "brown", "marrón"], "米": ["crème", "cream", "crema"],
   // vêtements
   "连帽卫衣": ["sweat à capuche", "hoodie", "sudadera con capucha"], "圆领卫衣": ["sweat col rond", "crewneck sweatshirt", "sudadera cuello redondo"],
-  "卫衣": ["sweat", "sweatshirt", "sudadera"], "拉链": ["zippé", "zip", "cremallera"], "半拉链": ["demi-zip", "half-zip", "media cremallera"],
+  "卫衣": ["sweat", "sweatshirt", "sudadera"], "连帽": ["à capuche", "hooded", "con capucha"], "帽衫": ["sweat à capuche", "hoodie", "sudadera con capucha"],
+  "经典": ["classique", "classic", "clásico"], "基础": ["basique", "basic", "básico"], "斯图西": ["Stussy", "Stussy", "Stussy"], "拉链": ["zippé", "zip", "cremallera"], "半拉链": ["demi-zip", "half-zip", "media cremallera"],
   "短袖": ["manches courtes", "short sleeve", "manga corta"], "长袖": ["manches longues", "long sleeve", "manga larga"], "T恤": ["t-shirt", "t-shirt", "camiseta"],
   "衬衫": ["chemise", "shirt", "camisa"], "polo衫": ["polo", "polo", "polo"], "POLO衫": ["polo", "polo", "polo"], "针织衫": ["pull en maille", "knit sweater", "jersey de punto"],
   "毛衣": ["pull", "sweater", "jersey"], "开衫": ["cardigan", "cardigan", "cárdigan"], "夹克": ["veste", "jacket", "chaqueta"], "外套": ["manteau", "coat", "abrigo"],

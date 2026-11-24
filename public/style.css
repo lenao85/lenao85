@@ -504,3 +504,27 @@ img.ld, .item .im img.ld { animation: fade .4s var(--ease); }
 .crop-box::before { content: ""; position: absolute; inset: 33.3% 0; border-top: 1px solid rgba(255, 255, 255, .5); border-bottom: 1px solid rgba(255, 255, 255, .5); pointer-events: none; }
 .crop-h { position: absolute; right: -14px; bottom: -14px; width: 30px; height: 30px; border-radius: 50%; background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, .35); touch-action: none; }
 .crop { overflow: hidden; border-radius: 12px; }
+
+/* ---------- Fluidité du défilement (iPhone) ----------
+   Le flou en arrière-plan (backdrop-filter) sur chaque carte et chaque étiquette est très coûteux
+   pendant le défilement : on le garde seulement pour les barres du haut et du bas. */
+.item, .store, .panel, .list, .agent-row, .drop, .sugg-box, .searchbar.sticky .field,
+.item .cnt, .item .score, .item .price, .item .heart, .store .star, .news-row {
+  backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+}
+:root { --card: #ffffff; }
+:root[data-theme="dark"] { --card: #1c1c22; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --card: #1c1c22; } }
+.item .cnt, .item .price { background: rgba(0, 0, 0, .55); }
+.item .heart { background: rgba(0, 0, 0, .35); }
+.store .star { background: rgba(0, 0, 0, .45); }
+/* halos de fond : fixes (plus d'animation permanente) et sans flou calculé en direct */
+.backdrop i { animation: none; filter: none; opacity: calc(var(--glow) * .9); background: radial-gradient(circle, color-mix(in srgb, var(--accent) 55%, transparent) 0%, transparent 68%); }
+.backdrop i:nth-child(2) { background: radial-gradient(circle, rgba(236, 72, 153, .35) 0%, transparent 68%); }
+.backdrop i:nth-child(3) { background: radial-gradient(circle, rgba(79, 140, 255, .3) 0%, transparent 68%); }
+.hero { animation: none; }
+/* le navigateur ne dessine que les cartes visibles à l'écran */
+.grid > .item, .stores > .store, .list > .wrow { content-visibility: auto; contain-intrinsic-size: auto 250px; }
+.item, .store { contain: layout paint; }
+.item .im img { transform: translateZ(0); }
+html { -webkit-overflow-scrolling: touch; }

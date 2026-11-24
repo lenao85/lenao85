@@ -198,7 +198,7 @@
     cardData.set(`${s}:${a.id}`, a);
     const pr = priceEur(a.title);
     return `<a class="item" href="#/s/${esc(s)}/a/${esc(a.id)}">
-      <div class="im">${a.cover ? `<img loading="lazy" src="${img(a.cover)}" alt="" onload="this.classList.add('ld')">` : ""}
+      <div class="im">${a.cover ? `<img loading="lazy" decoding="async" src="${img(a.cover)}" alt="" onload="this.classList.add('ld')">` : ""}
         ${score != null ? `<span class="score">${Math.round(score * 100)}%</span>` : ""}
         ${badge ? `<span class="deal">${esc(badge)}</span>` : ""}
         <button class="heart ${isWished(s, a.id) ? "on" : ""}" data-wish="${esc(s)}|${esc(a.id)}" aria-label="♡">${ICON.heart}</button>
@@ -608,6 +608,8 @@
       }
     });
     sx.docs = docs;
+    // motifs des marques masquées (« N*K* »…) pour les titres qui en ont
+    sx.masks = meta.items.map((it) => (/[*⭐🔥✨★☆●•💫]/u.test(it[2]) ? titleWords(it[2]).masks : null));
     sx.keyIndex = new Map(meta.items.map((it, i) => [`${meta.stores[it[0]]}:${it[1]}`, i]));
     sx.phrases = [...counts].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]);
     sx.words = sx.phrases.filter(([p]) => !p.includes(" ")).map(([p]) => p);
@@ -678,6 +680,7 @@
           const tk = toks[k];
           if (d.includes(" " + tk + " ")) { exact++; continue; }
           if (k === toks.length - 1 && d.includes(" " + tk)) continue;
+          if (tk.length >= 3 && sx.masks[i]?.some((re) => re.test(tk))) { exact++; continue; }
           ok = false; break;
         }
         if (ok && exact > best) best = exact;
@@ -807,7 +810,7 @@
         lastSearch.errors.push(s);
       }
       lastSearch.done++;
-      if (lastSearch.q === q && !signal.aborted) renderResults();
+      if (lastSearch.q === q && !signal.aborted) scheduleRender();
     });
     await discovering;
     if (!signal.aborted && lastSearch.q === q) {
@@ -825,7 +828,7 @@
           const r = await api("search", { s: o.store, q }, signal);
           if (r.albums.length) lastSearch.extra.push({ s: o.store, albums: r.albums, pages: r.pages });
         } catch (e) { if (e.name === "AbortError") throw e; }
-        if (lastSearch.q === q && !signal.aborted) renderResults();
+        if (lastSearch.q === q && !signal.aborted) scheduleRender();
       });
       lastSearch.extraState = "done";
     } catch (e) {
@@ -835,16 +838,68 @@
     if (lastSearch.q === q && !signal.aborted) renderResults();
   }
 
+  // ---------- Pertinence : tous les mots tapés doivent être dans le titre ----------
+  // Les vendeurs masquent souvent les marques (« N*K* », « B⭐L⭐⭐IA⭐A ») : ces mots deviennent des motifs.
+  const OBF = new Set(["*", "⭐", "🔥", "✨", "❤", "♥", "★", "☆", "✪", "●", "•", "_", "💫", "#"]);
+  const twCache = new Map();
+  function titleWords(title) {
+    let tw = twCache.get(title);
+    if (tw) return tw;
+    const raw = String(title || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ️]/g, "");
+    const masks = [];
+    for (const w of raw.split(/[\s,.;:!?()（）\[\]【】|\/~+="'-]+/)) {
+      if (![...w].some((c) => OBF.has(c)) || !/[a-z]/.test(w)) continue;
+      let re = "";
+      for (const c of w) re += OBF.has(c) ? ".{0,3}" : /[a-z0-9]/.test(c) ? c : "";
+      if (re.replace(/\.\{0,3\}/g, "").length >= 1) masks.push(new RegExp("^" + re + "$"));
+    }
+    tw = { text: " " + norm(raw) + " ", masks };
+    if (twCache.size > 20000) twCache.clear();
+    twCache.set(title, tw);
+    return tw;
+  }
+  function queryVariants(q) {
+    const base = norm(q).split(" ").filter(Boolean);
+    const v = [base];
+    if (ALIASES[base[0]]) v.push([...ALIASES[base[0]].split(" "), ...base.slice(1)]);
+    return v;
+  }
+  // part des mots de la recherche présents dans le titre (1 = tous)
+  function relevance(title, variants) {
+    const tw = titleWords(title);
+    let best = 0;
+    for (const toks of variants) {
+      let hit = 0;
+      for (const tk of toks) if (tw.text.includes(" " + tk) || (tk.length >= 3 && tw.masks.some((re) => re.test(tk)))) hit++;
+      best = Math.max(best, toks.length ? hit / toks.length : 0);
+    }
+    return best;
+  }
+
+  // pendant la recherche, on redessine au plus toutes les 400 ms (défilement plus fluide)
+  let rrTimer = null, rrLast = 0;
+  function scheduleRender() {
+    const wait = Math.max(0, 400 - (Date.now() - rrLast));
+    if (rrTimer) return;
+    rrTimer = setTimeout(() => { rrTimer = null; rrLast = Date.now(); renderResults(); }, wait);
+  }
+
   function renderResults() {
     const out = $("#out");
     if (!out) return;
     const { results, errors, done, filter } = lastSearch;
-    const total = results.reduce((n, r) => n + r.albums.length, 0);
     const finished = done >= stores.length;
-    const shown = results.filter((r) => !filter || r.s === filter);
+    const variants = queryVariants(lastSearch.q);
     // mélange : 1 album de chaque vendeur à tour de rôle, pour ne pas tout avoir du même
-    let mixed = [];
-    for (let i = 0; shown.some((r) => i < r.albums.length); i++) shown.forEach((r) => r.albums[i] && mixed.push([r.albums[i], r.s]));
+    let all = [];
+    for (let i = 0; results.some((r) => i < r.albums.length); i++) results.forEach((r) => r.albums[i] && all.push([r.albums[i], r.s, relevance(r.albums[i].title, variants)]));
+    const exactAll = all.filter((x) => x[2] >= 1);
+    const total = exactAll.length;
+    const perStore = {};
+    exactAll.forEach((x) => (perStore[x[1]] = (perStore[x[1]] || 0) + 1));
+    const storesExact = Object.keys(perStore);
+    let mixed = exactAll.filter((x) => !filter || x[1] === filter);
+    const near = all.filter((x) => x[2] < 1 && x[2] >= 0.5 && (!filter || x[1] === filter)).sort((a, b) => b[2] - a[2]);
     const sort = lastSearch.sort || "rel";
     if (sort !== "rel") {
       const pv = (x) => priceEur(x[0].title);
@@ -853,23 +908,28 @@
     const hasAlert = alerts.some((a) => a.q.toLowerCase() === lastSearch.q.toLowerCase());
     out.innerHTML = `
       ${finished ? "" : `<div class="progress"><i style="width:${(done / stores.length) * 100}%"></i></div>`}
-      <p class="muted" style="margin:0 4px 10px">${finished ? "" : esc(t("searching", { d: done, n: stores.length }))}${t("albumsAt", { t: total, n: results.length })}
+      <p class="muted" style="margin:0 4px 10px">${finished ? "" : esc(t("searching", { d: done, n: stores.length }))}${t("albumsAt", { t: total, n: storesExact.length })}
         ${finished && errors.length ? `<br><span class="err">${esc(t("noReply", { n: errors.length }))}</span>` : ""}${lastSearch.cached ? ` · <span>${esc(t("cached"))}</span>` : ""}</p>
       <div class="tools-row">
         <div class="seg mini" style="--n:3;--i:${["rel", "asc", "desc"].indexOf(sort)}"><i class="seg-pill"></i>${[["rel", "sortRel"], ["asc", "sortAsc"], ["desc", "sortDesc"]].map(([k, l]) => `<button class="seg-b ${sort === k ? "on" : ""}" data-sort="${k}">${esc(t(l))}</button>`).join("")}</div>
         <button class="alert-btn ${hasAlert ? "on" : ""}" id="alertBtn" ${hasAlert ? "disabled" : ""}>${ICON.bell}<span>${esc(t(hasAlert ? "alertOn" : "alertBtn").replace("🔔 ", ""))}</span></button>
       </div>
-      ${results.length > 1 ? `<div class="chips">
+      ${storesExact.length > 1 ? `<div class="chips">
         <button class="chip ${filter ? "" : "on"}" data-f="">${esc(t("all"))}</button>
-        ${results.slice().sort((a, b) => b.albums.length - a.albums.length).map((r) => `<button class="chip ${filter === r.s ? "on" : ""}" data-f="${esc(r.s)}">${esc(r.s)} · ${r.albums.length}${r.pages > 1 ? "+" : ""}</button>`).join("")}
+        ${storesExact.sort((a, b) => perStore[b] - perStore[a]).map((st) => `<button class="chip ${filter === st ? "on" : ""}" data-f="${esc(st)}">${esc(st)} · ${perStore[st]}</button>`).join("")}
       </div>` : ""}
       ${!total && !finished ? skeleton(4) : ""}
       <div class="grid">${mixed.map(([a, s]) => itemCard(a, s, true)).join("")}</div>
+      ${finished && near.length ? (lastSearch.showNear
+        ? `<div class="section-title" style="margin-top:22px">${esc(t("nearTitle"))} <small>${esc(t("nearSub"))}</small></div><div class="grid">${near.slice(0, 60).map(([a, s]) => itemCard(a, s, true)).join("")}</div>`
+        : `<button class="btn ghost block" id="nearBtn">${esc(t("nearMatches", { n: near.length }))}</button>`) : ""}
       ${filter && results.find((r) => r.s === filter)?.pages > 1 ? `<a class="btn ghost block" href="#/s/${esc(filter)}">${esc(t("moreAt", { s: filter }))}</a>` : ""}
       ${finished && !total ? `<div class="empty-state"><div class="big">🤷</div><b>${esc(t("nothingT"))}</b>${esc(t("nothingS"))}</div>` : ""}
       ${filter ? "" : renderExtra()}`;
     out.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { lastSearch.filter = c.dataset.f || null; renderResults(); }));
     out.querySelectorAll("[data-sort]").forEach((b) => (b.onclick = () => { lastSearch.sort = b.dataset.sort; renderResults(); }));
+    const nb = $("#nearBtn");
+    if (nb) nb.onclick = () => { lastSearch.showNear = true; renderResults(); };
     const ab = $("#alertBtn");
     if (ab && !hasAlert) ab.onclick = () => addAlert(lastSearch.q);
     out.querySelectorAll("[data-addstore]").forEach((b) => (b.onclick = (e) => {
@@ -882,7 +942,9 @@
   }
 
   function renderExtra() {
-    const { extra, extraState } = lastSearch;
+    const variants = queryVariants(lastSearch.q);
+    const extra = lastSearch.extra.map((r) => ({ ...r, albums: r.albums.filter((a) => relevance(a.title, variants) >= 1) })).filter((r) => r.albums.length);
+    const { extraState } = lastSearch;
     if (!extra.length && extraState !== "loading") return "";
     return `<div class="section-title" style="margin-top:26px">${esc(t("others"))} <small>${esc(t("othersSub"))}</small></div>
       ${extra.map((r) => `<div class="other">
@@ -1225,7 +1287,7 @@
     const meta = sx.meta, out = [];
     for (let i = 0; i < sx.docs.length; i++) {
       const d = sx.docs[i];
-      if (variants.some((toks) => toks.every((tk, k) => d.includes(" " + tk + " ") || (k === toks.length - 1 && d.includes(" " + tk))))) {
+      if (variants.some((toks) => toks.every((tk, k) => d.includes(" " + tk + " ") || (k === toks.length - 1 && d.includes(" " + tk)) || (tk.length >= 3 && sx.masks[i]?.some((re) => re.test(tk)))))) {
         out.push(`${meta.stores[meta.items[i][0]]}:${meta.items[i][1]}`);
       }
     }
@@ -1519,7 +1581,16 @@
       }
     }
   }
-  const onScroll = () => document.body.classList.toggle("scrolled", window.scrollY > 30);
+  let scrolledState = null, scrollTick = false;
+  const onScroll = () => {
+    if (scrollTick) return;
+    scrollTick = true;
+    requestAnimationFrame(() => {
+      scrollTick = false;
+      const v = window.scrollY > 30;
+      if (v !== scrolledState) { scrolledState = v; document.body.classList.toggle("scrolled", v); }
+    });
+  };
   window.addEventListener("scroll", onScroll, { passive: true });
   $("#back").onclick = () => (history.length > 1 ? history.back() : (location.hash = "#/"));
   window.addEventListener("hashchange", () => route());
