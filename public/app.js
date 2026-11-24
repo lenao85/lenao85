@@ -906,8 +906,20 @@
     T.env.allowLocalModels = false;
     T.env.remoteHost = location.origin + "/models/"; // modèle relayé par notre serveur
     ps.proc = await T.AutoProcessor.from_pretrained(VIS.model);
-    ps.model = await T.AutoModel.from_pretrained(VIS.model, { dtype: "q8" });
+    // WebAssembly SIMD (la plupart des iPhone), sinon la carte graphique (WebGPU) ; sinon recherche par texte
+    const devices = [];
+    if (wasmSimdOk()) devices.push("wasm");
+    if (navigator.gpu) devices.push("webgpu");
+    for (const device of devices) {
+      try { ps.model = await T.AutoModel.from_pretrained(VIS.model, { dtype: "q8", device }); ps.device = device; break; } catch (e) { ps.loadErr = e; }
+    }
+    if (!ps.model) { const err = new Error(t("noVisual")); err.noVisual = true; throw err; }
     ps.T = T;
+  }
+  function wasmSimdOk() {
+    try {
+      return typeof WebAssembly === "object" && WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]));
+    } catch { return false; }
   }
 
   async function loadIndex(onStatus) {
@@ -1027,6 +1039,7 @@
       cropper(f0, (f, url) => runPhotoSearch(f, url));
     };
     const runPhotoSearch = async (f, url) => {
+      let visualFailed = false;
       $("#prev").innerHTML = `<img src="${url}" alt="" class="pop"><div class="muted" style="margin-top:8px">${esc(t("changePhoto"))}</div>`;
       $("#drop").classList.add("has");
       $("#actions").hidden = false;
@@ -1044,10 +1057,23 @@
         matches = nearest(q);
         renderMatches(el, matches);
       } catch (e) {
-        el.innerHTML = `<p class="err" style="margin-top:12px">${esc(e.message)}</p>`;
+        visualFailed = true;
+        el.innerHTML = `<p class="muted" style="margin-top:12px">${esc(e.noVisual || /SIMD|backend|WebAssembly|wasm/i.test(e.message) ? t("noVisualHelp") : e.message)}</p>`;
       }
       // identification par IA (marque, modèle, référence), aidée par les titres des albums ressemblants
-      identifyPhoto(f, matches, $("#ident"));
+      const d = await identifyPhoto(f, matches, $("#ident"));
+      // si la recherche visuelle n'a pas marché : résultats par texte à partir de l'identification
+      if (visualFailed && d && (d.marque || d.modele)) {
+        try {
+          await buildSearchIndex();
+          let q = [d.marque, d.modele].filter(Boolean).join(" ");
+          let inst = instantResults(q, 40);
+          if (!inst.total && d.marque) { q = d.marque; inst = instantResults(q, 40); }
+          el.innerHTML += `<div class="section-title" style="margin-top:14px">${esc(t("textFallback", { q }))} <small>${esc(t("instantSub", { n: inst.total }))}</small></div>
+            ${inst.list.length ? `<div class="grid stagger">${inst.list.map((r) => itemCard(r.a, r.s, true)).join("")}</div>` : ""}
+            <a class="btn grad block" href="#/search?q=${encodeURIComponent(q)}">${esc(t("liveSearch", { q }))}</a>`;
+        } catch {}
+      }
     };
     $("#bing").onclick = async () => {
       const f = file.files[0];
@@ -1112,8 +1138,10 @@
       </div>`;
       const rc = $("#refCopy");
       if (rc) rc.onclick = () => copy(ref);
+      return d;
     } catch (e) {
       el.innerHTML = `<div class="panel ident"><p class="muted" style="margin:0">${esc(t("identUnavailable", { e: e.message }))}</p></div>`;
+      return null;
     }
   }
 
