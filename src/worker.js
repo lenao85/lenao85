@@ -177,19 +177,27 @@ async function indexFile(name, env) {
 }
 
 // Fichiers du modèle photo (Hugging Face) servis depuis notre adresse : évite les soucis CORS sur iPhone
-async function modelFile(path) {
+// Hugging Face redirige vers un lien signé qui expire : on garde en cache le FICHIER final
+// (cache Cloudflare de notre côté), jamais la redirection.
+async function modelFile(path, ctx) {
   if (!/^Xenova\/dinov2-small\/resolve\/main\/[A-Za-z0-9_./-]+$/.test(path) || path.includes("..")) {
     return new Response("not found", { status: 404 });
   }
-  const up = await fetch(`https://huggingface.co/${path}`, { cf: { cacheTtl: 2592000, cacheEverything: true } });
+  const cache = caches.default;
+  const key = new Request(`https://model.cache/v2/${path}`);
+  const hit = await cache.match(key);
+  if (hit) return hit;
+  const up = await fetch(`https://huggingface.co/${path}`, { redirect: "follow", cf: { cacheTtl: 0, cacheEverything: false } });
   if (!up.ok) return new Response("not found", { status: up.status });
-  return new Response(up.body, {
+  const res = new Response(up.body, {
     headers: {
       "content-type": up.headers.get("content-type") || "application/octet-stream",
       "cache-control": "public, max-age=2592000",
       "access-control-allow-origin": "*",
     },
   });
+  ctx.waitUntil(cache.put(key, res.clone()));
+  return res;
 }
 
 // ---------- Identification d'un article (marque, modèle, référence) ----------
@@ -282,7 +290,7 @@ export default {
       if (url.pathname.startsWith("/api/")) return await api(url.pathname, url.searchParams);
       if (url.pathname === "/img") return await image(url.searchParams, ctx);
       if (url.pathname.startsWith("/index/")) return await indexFile(url.pathname.slice(7), env);
-      if (url.pathname.startsWith("/models/")) return await modelFile(url.pathname.slice(8));
+      if (url.pathname.startsWith("/models/")) return await modelFile(url.pathname.slice(8), ctx);
     } catch (e) {
       return json({ error: e.message || "Erreur" }, e.status || 500);
     }
