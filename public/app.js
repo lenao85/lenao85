@@ -1066,7 +1066,10 @@
       if (visualFailed && d && (d.marque || d.modele)) {
         try {
           await buildSearchIndex();
-          let q = [d.marque, d.modele].filter(Boolean).join(" ");
+          // marque + modèle sans répéter les mots (« Air Jordan » + « Air Jordan 5 » → « Air Jordan 5 »)
+          const words = [];
+          for (const w of [d.marque, d.modele].filter(Boolean).join(" ").split(/\s+/)) if (!words.some((x) => x.toLowerCase() === w.toLowerCase())) words.push(w);
+          let q = words.join(" ");
           let inst = instantResults(q, 40);
           if (!inst.total && d.marque) { q = d.marque; inst = instantResults(q, 40); }
           el.innerHTML += `<div class="section-title" style="margin-top:14px">${esc(t("textFallback", { q }))} <small>${esc(t("instantSub", { n: inst.total }))}</small></div>
